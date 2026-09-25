@@ -101,12 +101,14 @@ class VinaBackend:
                     command.extend([flag, str(request.parameters[name])])
 
             try:
-                timeout = (
-                    self._execution_timeout.total_seconds()
-                    if self._execution_timeout is not None
-                    else None
-                )
-                process = self._runner(command, cwd=cwd, timeout=timeout)
+                if self._execution_timeout is None:
+                    process = self._runner(command, cwd=cwd)
+                else:
+                    process = self._runner(
+                        command,
+                        cwd=cwd,
+                        timeout=self._execution_timeout.total_seconds(),
+                    )
             except subprocess.TimeoutExpired as exc:
                 duration = (
                     f" after {exc.timeout:g} seconds"
