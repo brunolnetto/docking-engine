@@ -333,18 +333,25 @@ class DuckLakeTaskRepository:
         last_error: Exception | None = None
         for attempt_number in range(self._max_transaction_retries):
             self._connection.execute("BEGIN TRANSACTION")
+            deferred_error: Exception | None = None
             try:
-                result = operation()
+                try:
+                    result = operation()
+                except _CommitThenRaise as deferred:
+                    result = None
+                    deferred_error = deferred.error
+
                 self._connection.execute("COMMIT")
+                if deferred_error is not None:
+                    raise deferred_error
                 return result
-            except _CommitThenRaise as deferred:
-                self._connection.execute("COMMIT")
-                raise deferred.error
             except Exception as exc:
                 try:
                     self._connection.execute("ROLLBACK")
                 except Exception:
                     pass
+                if deferred_error is not None and exc is deferred_error:
+                    raise
                 if not self._is_transaction_conflict(exc):
                     raise
                 last_error = exc
@@ -518,7 +525,12 @@ class DuckLakeTaskRepository:
         if transaction_error is not None and isinstance(error, transaction_error):
             return True
         message = str(error).lower()
-        return "conflict" in message or "transaction" in message and "retry" in message
+        return (
+            "conflict" in message
+            or "database is locked" in message
+            or "serialization" in message
+            or ("transaction" in message and "retry" in message)
+        )
 
 
 class _CommitThenRaise(Exception):
