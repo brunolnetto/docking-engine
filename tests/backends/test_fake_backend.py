@@ -5,17 +5,24 @@ from moldock.backends import (
     DockingBackendError,
     FakeDockingBackend,
 )
-from moldock.domain import DockingTask
+from moldock.domain import DockingBox, DockingExecutionRequest, DockingTask
 
 
-def make_task() -> DockingTask:
-    return DockingTask(
+def make_request() -> DockingExecutionRequest:
+    box = DockingBox(1, 2, 3, 20, 20, 20)
+    task = DockingTask(
         experiment_id="exp_1",
         receptor_id="rec_1",
         ligand_id="lig_1",
         prepared_receptor_id="prepared_rec_1",
         prepared_ligand_id="prepared_lig_1",
-        search_space_id="space_1",
+        search_space_id=box.search_space_id,
+    )
+    return DockingExecutionRequest(
+        task=task,
+        receptor_pdbqt=b"REC",
+        ligand_pdbqt=b"LIG",
+        search_space=box,
     )
 
 
@@ -23,31 +30,31 @@ def test_fake_backend_implements_backend_contract():
     assert isinstance(FakeDockingBackend(), DockingBackend)
 
 
-def test_fake_backend_is_deterministic_for_same_task():
+def test_fake_backend_is_deterministic_for_same_request():
     backend = FakeDockingBackend()
-    task = make_task()
+    request = make_request()
 
-    first = backend.execute(task)
-    second = backend.execute(task)
+    first = backend.execute(request)
+    second = backend.execute(request)
 
     assert first == second
     assert len(first.artifacts) == 1
     assert first.artifacts[0].kind == "docking_pose"
-    assert task.task_id.encode() in first.artifacts[0].content
+    assert request.task.task_id.encode() in first.artifacts[0].content
 
 
 def test_fake_backend_records_calls():
     backend = FakeDockingBackend()
-    task = make_task()
+    request = make_request()
 
-    backend.execute(task)
+    backend.execute(request)
 
-    assert backend.calls == (task.task_id,)
+    assert backend.calls == (request.task.task_id,)
 
 
 def test_fake_backend_can_fail_selected_tasks():
-    task = make_task()
-    backend = FakeDockingBackend(fail_task_ids={task.task_id})
+    request = make_request()
+    backend = FakeDockingBackend(fail_task_ids={request.task.task_id})
 
-    with pytest.raises(DockingBackendError, match=task.task_id):
-        backend.execute(task)
+    with pytest.raises(DockingBackendError, match=request.task.task_id):
+        backend.execute(request)
