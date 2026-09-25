@@ -123,22 +123,7 @@ class DuckLakeTaskRepository:
             )
             """
         )
-        rows = self._connection.execute(
-            """
-            SELECT coordination_key, epoch
-            FROM moldock.claim_coordination
-            WHERE coordination_key = 'task_repository'
-            """
-        ).fetchall()
-        if len(rows) > 1:
-            raise RuntimeError("DuckLake claim coordination row is duplicated")
-        if not rows:
-            self._connection.execute(
-                """
-                INSERT INTO moldock.claim_coordination
-                VALUES ('task_repository', 0)
-                """
-            )
+        self._bootstrap_coordination_row()
 
     def register(self, task: DockingTask) -> None:
         def operation() -> None:
@@ -206,6 +191,7 @@ class DuckLakeTaskRepository:
             raise DomainValidationError("run_id must not be blank")
         if not worker_id.strip():
             raise DomainValidationError("worker_id must not be blank")
+        self._validate_timestamp(at)
         duration = self._lease_duration(lease_duration)
 
         def operation() -> TaskAttempt | None:
@@ -271,6 +257,7 @@ class DuckLakeTaskRepository:
         at: datetime,
         lease_duration: timedelta | None = None,
     ) -> TaskAttempt:
+        self._validate_timestamp(at)
         duration = self._lease_duration(lease_duration)
 
         def operation() -> TaskAttempt:
@@ -294,6 +281,8 @@ class DuckLakeTaskRepository:
         return self._run_write(operation)
 
     def succeed(self, attempt_id: str, at: datetime) -> TaskAttempt:
+        self._validate_timestamp(at)
+
         def operation() -> TaskAttempt:
             self._touch_coordination()
             attempt = self._require_attempt(attempt_id)
@@ -310,6 +299,8 @@ class DuckLakeTaskRepository:
         return self._run_write(operation)
 
     def fail(self, attempt_id: str, at: datetime, error: str) -> TaskAttempt:
+        self._validate_timestamp(at)
+
         def operation() -> TaskAttempt:
             self._touch_coordination()
             attempt = self._require_attempt(attempt_id)
@@ -328,6 +319,29 @@ class DuckLakeTaskRepository:
 
     def close(self) -> None:
         self._connection.close()
+
+    def _bootstrap_coordination_row(self) -> None:
+        def operation() -> None:
+            rows = self._connection.execute(
+                """
+                SELECT coordination_key, epoch
+                FROM moldock.claim_coordination
+                WHERE coordination_key = 'task_repository'
+                """
+            ).fetchall()
+            if len(rows) > 1:
+                raise RuntimeError(
+                    "DuckLake claim coordination row is duplicated"
+                )
+            if not rows:
+                self._connection.execute(
+                    """
+                    INSERT INTO moldock.claim_coordination
+                    VALUES ('task_repository', 0)
+                    """
+                )
+
+        self._run_write(operation)
 
     def _run_write(self, operation):
         last_error: Exception | None = None
@@ -505,6 +519,13 @@ class DuckLakeTaskRepository:
             status=TaskStatus(row[9]),
             error=row[10],
         )
+
+    @staticmethod
+    def _validate_timestamp(value: datetime) -> None:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise DomainValidationError(
+                "timestamps must be timezone-aware"
+            )
 
     def _lease_duration(
         self,
