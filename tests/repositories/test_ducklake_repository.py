@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Barrier, Lock
 
+import duckdb
+
 import pytest
 
-from moldock.domain import DockingTask, TaskStatus
+from moldock.domain import DockingTask, DomainValidationError, TaskStatus
 from moldock.repositories import DuckLakeTaskRepository, TaskRepository
 
 
@@ -158,3 +160,119 @@ def test_ducklake_registration_is_idempotent_across_clients(tmp_path):
     repo2.register(task)
 
     assert repo1.list_for_experiment("exp_1") == (task,)
+
+
+def test_concurrent_repository_bootstrap_creates_one_coordination_row(tmp_path):
+    barrier = Barrier(2)
+
+    class SynchronizedBootstrapRepository(DuckLakeTaskRepository):
+        def _initialize_schema(self):
+            barrier.wait(timeout=5)
+            super()._initialize_schema()
+
+    def construct():
+        return SynchronizedBootstrapRepository(
+            catalog_path=tmp_path / "catalog.sqlite",
+            data_path=tmp_path / "data",
+            default_lease_duration=timedelta(minutes=5),
+            max_transaction_retries=8,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        repos = list(pool.map(lambda _: construct(), range(2)))
+
+    try:
+        rows = repos[0]._connection.execute(
+            """
+            SELECT coordination_key, epoch
+            FROM moldock.claim_coordination
+            WHERE coordination_key = 'task_repository'
+            """
+        ).fetchall()
+        assert len(rows) == 1
+    finally:
+        for repo in repos:
+            repo.close()
+
+
+@pytest.mark.parametrize("method", ["claim", "heartbeat", "succeed", "fail"])
+def test_ducklake_repository_rejects_naive_timestamps(tmp_path, method):
+    repo = make_repo(tmp_path)
+    task = make_task()
+    repo.register(task)
+    naive = T0.replace(tzinfo=None)
+
+    if method == "claim":
+        with pytest.raises(DomainValidationError, match="timezone-aware"):
+            repo.claim_next("exp_1", "run_1", "worker_1", naive)
+        return
+
+    attempt = repo.claim_next("exp_1", "run_1", "worker_1", T0)
+    assert attempt is not None
+
+    if method == "heartbeat":
+        action = lambda: repo.heartbeat(
+            attempt.attempt_id,
+            worker_id="worker_1",
+            at=naive,
+        )
+    elif method == "succeed":
+        action = lambda: repo.succeed(attempt.attempt_id, naive)
+    else:
+        action = lambda: repo.fail(attempt.attempt_id, naive, "boom")
+
+    with pytest.raises(DomainValidationError, match="timezone-aware"):
+        action()
+
+
+def test_deferred_expiry_commit_conflict_is_retried_before_domain_error(tmp_path):
+    repo = DuckLakeTaskRepository(
+        catalog_path=tmp_path / "catalog.sqlite",
+        data_path=tmp_path / "data",
+        default_lease_duration=timedelta(minutes=1),
+        max_transaction_retries=3,
+        retry_delay_seconds=0,
+    )
+    task = make_task()
+    repo.register(task)
+    attempt = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        lease_duration=timedelta(minutes=1),
+    )
+    assert attempt is not None
+
+    inner = repo._connection
+
+    class CommitConflictOnceConnection:
+        def __init__(self):
+            self.conflicts = 0
+
+        def execute(self, query, parameters=None):
+            if query.strip().upper() == "COMMIT" and self.conflicts == 0:
+                self.conflicts += 1
+                raise duckdb.TransactionException(
+                    "transaction conflict injected by test"
+                )
+            if parameters is None:
+                return inner.execute(query)
+            return inner.execute(query, parameters)
+
+        def __getattr__(self, name):
+            return getattr(inner, name)
+
+    wrapped = CommitConflictOnceConnection()
+    repo._connection = wrapped
+
+    with pytest.raises(DomainValidationError, match="lease has expired"):
+        repo.succeed(
+            attempt.attempt_id,
+            T0 + timedelta(minutes=2),
+        )
+
+    assert wrapped.conflicts == 1
+    history = repo.attempts_for(task.task_id, "run_1")
+    assert history[-1].status is TaskStatus.FAILED
+    assert history[-1].error == "lease expired"
