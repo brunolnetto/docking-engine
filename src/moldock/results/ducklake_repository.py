@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from moldock.domain import (
@@ -10,7 +9,7 @@ from moldock.domain import (
     PoseScore,
     ScoreKind,
 )
-from moldock.domain.common import canonical_json
+from moldock.repositories.metadata_codec import decode_metadata, encode_metadata
 from moldock.repositories.ducklake_base import DuckLakeRepositoryBase
 
 
@@ -126,7 +125,7 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
                     score.unit,
                     score.method,
                     score.method_version,
-                    canonical_json(score.metadata),
+                    encode_metadata(score.metadata),
                 ],
             )
 
@@ -287,7 +286,7 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
             unit=row[4],
             method=row[5],
             method_version=row[6],
-            metadata=json.loads(row[7]),
+            metadata=decode_metadata(row[7]),
         )
 
     @staticmethod

@@ -47,6 +47,7 @@ class DuckLakeRepositoryBase:
         self._write_lock = _catalog_write_lock(self._catalog_path)
         self._connection = None
         self._attach()
+        self._bootstrap_coordination()
 
     def close(self) -> None:
         if self._connection is not None:
@@ -97,7 +98,34 @@ class DuckLakeRepositoryBase:
             "DuckLake attach retry budget exhausted"
         ) from last_error
 
+    def _bootstrap_coordination(self) -> None:
+        def operation() -> None:
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.repository_coordination AS
+                SELECT
+                    CAST('shared_adapters' AS VARCHAR) AS coordination_key,
+                    CAST(0 AS BIGINT) AS epoch
+                """
+            )
+            rows = self._connection.execute(
+                """
+                SELECT coordination_key, epoch
+                FROM moldock.repository_coordination
+                WHERE coordination_key = 'shared_adapters'
+                """
+            ).fetchall()
+            if len(rows) != 1:
+                raise RuntimeError(
+                    "DuckLake shared coordination row must be unique"
+                )
+
+        self._run_transaction(operation, touch_coordination=False)
+
     def _run_write(self, operation):
+        return self._run_transaction(operation, touch_coordination=True)
+
+    def _run_transaction(self, operation, *, touch_coordination: bool):
         with self._write_lock:
             last_error: Exception | None = None
             for attempt_number in range(self._max_transaction_retries):
@@ -105,8 +133,11 @@ class DuckLakeRepositoryBase:
                 try:
                     self._connection.execute("BEGIN TRANSACTION")
                     transaction_started = True
+                    if touch_coordination:
+                        self._touch_coordination()
                     result = operation()
                     self._connection.execute("COMMIT")
+                    transaction_started = False
                     return result
                 except Exception as exc:
                     if transaction_started:
@@ -124,6 +155,15 @@ class DuckLakeRepositoryBase:
             raise RuntimeError(
                 "DuckLake transaction retry budget exhausted"
             ) from last_error
+
+    def _touch_coordination(self) -> None:
+        self._connection.execute(
+            """
+            UPDATE moldock.repository_coordination
+            SET epoch = epoch + 1
+            WHERE coordination_key = 'shared_adapters'
+            """
+        )
 
     def _reconnect(self) -> None:
         if self._connection is not None:
