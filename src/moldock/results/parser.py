@@ -76,12 +76,13 @@ class VinaResultParser:
                     f"MODEL {model_index} has invalid VINA RESULT"
                 ) from exc
 
+            geometry = self._canonical_geometry(block)
             pose = Pose(
                 task_id=task_id,
                 attempt_id=attempt_id,
                 source_artifact_id=source_artifact_id,
                 model_index=model_index,
-                geometry_sha256=hashlib.sha256(block).hexdigest(),
+                geometry_sha256=hashlib.sha256(geometry).hexdigest(),
             )
             poses.append(pose)
             scores.append(
@@ -111,6 +112,15 @@ class VinaResultParser:
             scores=tuple(scores),
             rankings=tuple(rankings),
         )
+
+    @staticmethod
+    def _canonical_geometry(block: bytes) -> bytes:
+        geometry_lines = [
+            line.rstrip(b"\r\n")
+            for line in block.splitlines()
+            if line.startswith((b"ATOM", b"HETATM"))
+        ]
+        return b"\n".join(geometry_lines)
 
     def _model_blocks(self, content: bytes) -> list[tuple[int, bytes]]:
         blocks: list[tuple[int, bytes]] = []

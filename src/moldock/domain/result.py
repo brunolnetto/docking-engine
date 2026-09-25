@@ -61,6 +61,8 @@ class PoseScore:
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, ScoreKind):
+            raise DomainValidationError("kind must be a ScoreKind")
         if not self.pose_id.strip():
             raise DomainValidationError("pose_id must not be blank")
         if not math.isfinite(self.value):
