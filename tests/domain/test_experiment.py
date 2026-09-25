@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError
+from types import MappingProxyType
 
 import pytest
 
@@ -81,6 +82,19 @@ def test_nested_parameters_are_deeply_immutable_and_identity_stays_stable():
 
     with pytest.raises(TypeError):
         experiment.parameters["search"]["weights"][0] = 99.0
+
+
+def test_tuple_and_set_parameters_are_deeply_frozen():
+    experiment = make_experiment(
+        parameters={
+            "tuple_value": ({"x": 1}, 2),
+            "set_value": {"b", "a"},
+        }
+    )
+
+    assert isinstance(experiment.parameters["tuple_value"], tuple)
+    assert isinstance(experiment.parameters["tuple_value"][0], MappingProxyType)
+    assert experiment.parameters["set_value"] == frozenset({"a", "b"})
 
 
 def test_required_field_cannot_be_blank():

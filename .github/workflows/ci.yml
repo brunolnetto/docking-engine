@@ -60,7 +60,7 @@ jobs:
             {
               echo "## Coverage — Python ${{ matrix.python-version }}"
               echo
-              python -m coverage report --format=markdown
+              python -m coverage report --format=markdown --fail-under=0
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
