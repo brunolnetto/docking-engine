@@ -10,13 +10,6 @@ from moldock.domain import DomainValidationError, StoredBlob
 _BLOB_ID_RE = re.compile(r"^blob_([0-9a-f]{64})$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _NOT_FOUND_CODES = {"404", "NoSuchKey", "NotFound"}
-_ALREADY_EXISTS_CODES = {
-    "412",
-    "PreconditionFailed",
-    "ConditionalRequestConflict",
-}
-
-
 class RustFSArtifactStore:
     """Content-addressed artifact storage backed by RustFS's S3-compatible API."""
 
@@ -101,22 +94,22 @@ class RustFSArtifactStore:
             "size_bytes": str(len(content)),
         }
 
-        try:
+        if not self._exists_and_is_valid(
+            key=key,
+            expected_digest=digest,
+            expected_size=len(content),
+        ):
             self._client.put_object(
                 Bucket=self._bucket,
                 Key=key,
                 Body=content,
                 Metadata=metadata,
-                IfNoneMatch="*",
             )
-        except Exception as exc:
-            if not self._is_error_code(exc, _ALREADY_EXISTS_CODES):
-                raise
             self._read_verified(
                 key=key,
                 expected_digest=digest,
                 expected_size=len(content),
-                unknown_message=f"unknown blob: {blob_id}",
+                unknown_message=f"unknown blob after write: {blob_id}",
             )
 
         return StoredBlob(
@@ -148,6 +141,26 @@ class RustFSArtifactStore:
             expected_size=None,
             unknown_message=f"unknown RustFS artifact URI: {uri}",
         )
+
+    def _exists_and_is_valid(
+        self,
+        *,
+        key: str,
+        expected_digest: str,
+        expected_size: int,
+    ) -> bool:
+        try:
+            self._read_verified(
+                key=key,
+                expected_digest=expected_digest,
+                expected_size=expected_size,
+                unknown_message="missing",
+            )
+        except DomainValidationError as exc:
+            if str(exc) == "missing":
+                return False
+            raise
+        return True
 
     def _read_verified(
         self,
