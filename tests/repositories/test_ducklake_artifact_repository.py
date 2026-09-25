@@ -1,3 +1,4 @@
+import duckdb
 import pytest
 
 from moldock.domain import ArtifactMetadata, DomainValidationError
@@ -93,5 +94,72 @@ def test_artifacts_are_listed_deterministically(tmp_path):
         repo.register(a)
 
         assert repo.list_for_attempt("attempt_1") == (a, b)
+    finally:
+        repo.close()
+
+
+def test_artifact_write_conflict_reconnects_and_retries(tmp_path):
+    repo = DuckLakeArtifactRepository(
+        catalog_path=tmp_path / "catalog.sqlite",
+        data_path=tmp_path / "data",
+        max_transaction_retries=3,
+        retry_delay_seconds=0,
+    )
+    artifact = make_artifact()
+    inner = repo._connection
+    state = {"conflicts": 0}
+
+    class CommitConflictOnceConnection:
+        def execute(self, query, parameters=None):
+            if (
+                query.strip().upper() == "COMMIT"
+                and state["conflicts"] == 0
+            ):
+                state["conflicts"] += 1
+                raise duckdb.TransactionException(
+                    "transaction conflict injected by test"
+                )
+            if parameters is None:
+                return inner.execute(query)
+            return inner.execute(query, parameters)
+
+        def close(self):
+            return inner.close()
+
+        def __getattr__(self, name):
+            return getattr(inner, name)
+
+    repo._connection = CommitConflictOnceConnection()
+    try:
+        repo.register(artifact)
+
+        assert state["conflicts"] == 1
+        assert repo.get(artifact.artifact_id) == artifact
+        assert repo.list_for_attempt("attempt_1") == (artifact,)
+    finally:
+        repo.close()
+
+
+def test_shared_adapter_writes_touch_coordination_row(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        before = repo._connection.execute(
+            """
+            SELECT epoch
+            FROM moldock.repository_coordination
+            WHERE coordination_key = 'shared_adapters'
+            """
+        ).fetchone()[0]
+
+        repo.register(make_artifact())
+
+        after = repo._connection.execute(
+            """
+            SELECT epoch
+            FROM moldock.repository_coordination
+            WHERE coordination_key = 'shared_adapters'
+            """
+        ).fetchone()[0]
+        assert after == before + 1
     finally:
         repo.close()

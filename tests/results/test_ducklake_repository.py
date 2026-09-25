@@ -207,3 +207,30 @@ def test_scientific_lists_are_deterministic(tmp_path):
         )
     finally:
         repo.close()
+
+
+def test_score_metadata_preserves_collection_types_across_restart(tmp_path):
+    pose = make_pose()
+    score = make_score(
+        pose.pose_id,
+        metadata={
+            "labels": {"vina", "primary"},
+            "ordered": ("first", "second"),
+            "nested": {
+                "sets": frozenset({"a", "b"}),
+            },
+        },
+    )
+    repo = make_repo(tmp_path)
+    repo.register_pose(pose)
+    repo.register_score(score)
+    repo.close()
+
+    reopened = make_repo(tmp_path)
+    try:
+        reloaded = reopened.list_scores_for_pose(pose.pose_id)
+        assert reloaded == (score,)
+        reopened.register_score(score)
+        assert reopened.list_scores_for_pose(pose.pose_id) == (score,)
+    finally:
+        reopened.close()
