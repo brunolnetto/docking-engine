@@ -361,3 +361,67 @@ def test_heartbeat_factory_failure_finalizes_claimed_attempt():
     assert "heartbeat resource unavailable" in result.error
     assert executor.calls == []
     assert repo.attempts_for(task.task_id, "run_1") == (result,)
+
+
+
+def test_runner_rejects_non_positive_lease_duration():
+    repo = InMemoryTaskRepository()
+    with pytest.raises(DomainValidationError, match="lease_duration"):
+        LeasedWorkerRunner(
+            task_repository=repo,
+            executor=RecordingExecutor(),
+            clock=lambda: T0,
+            lease_duration=timedelta(0),
+            heartbeat_interval=timedelta(seconds=1),
+        )
+
+
+def test_heartbeat_stop_failure_becomes_lease_failure_when_execution_succeeds():
+    class StopFailingHeartbeat(RecordingHeartbeat):
+        def stop(self):
+            self.stopped = True
+            raise RuntimeError("heartbeat stop failed")
+
+    heartbeat = StopFailingHeartbeat()
+    runner, _, _, _, _ = make_runner(RecordingExecutor(), heartbeat)
+
+    result = runner.run_once("exp_1", "run_1", "worker_1")
+
+    assert result is not None
+    assert result.status is TaskStatus.FAILED
+    assert result.failure_kind is FailureKind.INFRASTRUCTURE
+    assert "heartbeat stop failed" in result.error
+
+
+def test_current_attempt_raises_when_claimed_attempt_disappears():
+    runner, repo, task, _, _ = make_runner(RecordingExecutor())
+    attempt = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        lease_duration=timedelta(minutes=5),
+    )
+    assert attempt is not None
+    repo._attempt_ids_by_task_run[(task.task_id, "run_1")] = []
+
+    with pytest.raises(RuntimeError, match="claimed attempt disappeared"):
+        runner._current_attempt(attempt)
+
+
+def test_finalize_reraises_domain_error_if_attempt_is_still_running():
+    runner, repo, _, _, _ = make_runner(RecordingExecutor())
+    attempt = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        lease_duration=timedelta(minutes=5),
+    )
+    assert attempt is not None
+
+    def fail_finalization():
+        raise DomainValidationError("conflict")
+
+    with pytest.raises(DomainValidationError, match="conflict"):
+        runner._finalize_attempt(attempt, fail_finalization)
