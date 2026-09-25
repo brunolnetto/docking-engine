@@ -189,8 +189,6 @@ class TaskAttempt:
     ) -> "TaskAttempt":
         if self.status is not TaskStatus.RUNNING:
             raise DomainValidationError("only running attempts can heartbeat")
-        if self.heartbeat_at is None:
-            raise DomainValidationError("running attempt must have heartbeat_at")
         if at < self.heartbeat_at:
             raise DomainValidationError("heartbeat cannot move backwards")
         if lease_duration <= timedelta(0):

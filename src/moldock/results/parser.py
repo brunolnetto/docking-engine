@@ -67,14 +67,9 @@ class VinaResultParser:
                     f"MODEL {model_index} has invalid VINA RESULT"
                 )
 
-            try:
-                affinity, rmsd_lb, rmsd_ub = (
-                    float(match.group(index)) for index in (1, 2, 3)
-                )
-            except ValueError as exc:
-                raise VinaResultParseError(
-                    f"MODEL {model_index} has invalid VINA RESULT"
-                ) from exc
+            affinity, rmsd_lb, rmsd_ub = (
+                float(match.group(index)) for index in (1, 2, 3)
+            )
 
             geometry = self._canonical_geometry(block)
             pose = Pose(

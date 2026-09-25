@@ -210,3 +210,29 @@ def test_input_resolution_failure_marks_attempt_failed():
     assert attempt is not None
     assert attempt.status is TaskStatus.FAILED
     assert "prepared receptor" in attempt.error
+
+
+class VanishingTaskRepository(InMemoryTaskRepository):
+    def get(self, task_id):
+        return None
+
+
+def test_claimed_task_missing_from_repository_marks_attempt_failed():
+    task = make_task()
+    tasks = VanishingTaskRepository()
+    artifacts = InMemoryArtifactRepository()
+    tasks.register(task)
+    worker = Worker(
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=MemoryArtifactStore(),
+        input_resolver=make_resolver(task),
+        backend=FakeDockingBackend(),
+        clock=lambda: T0,
+    )
+
+    attempt = worker.run_once("exp_1", "run_1", "worker_1")
+
+    assert attempt is not None
+    assert attempt.status is TaskStatus.FAILED
+    assert "claimed task not found" in attempt.error

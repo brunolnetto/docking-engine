@@ -141,3 +141,25 @@ def test_vina_backend_requires_output_file():
 
     with pytest.raises(DockingBackendError, match="did not produce"):
         backend.execute(make_request())
+
+
+def test_default_vina_runner_delegates_to_subprocess(monkeypatch):
+    import moldock.backends.vina as vina_module
+
+    calls = []
+
+    def fake_run(command, *, cwd, capture_output, text, check):
+        calls.append((command, cwd, capture_output, text, check))
+        return CompletedProcess(command, 0, "ok", "")
+
+    monkeypatch.setattr(vina_module.subprocess, "run", fake_run)
+
+    result = vina_module._default_runner(
+        ["vina", "--version"],
+        cwd=Path("/tmp"),
+    )
+
+    assert result.returncode == 0
+    assert calls == [
+        (["vina", "--version"], Path("/tmp"), True, True, False)
+    ]
