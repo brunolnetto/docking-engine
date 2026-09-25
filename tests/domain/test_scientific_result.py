@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from moldock.domain import (
@@ -19,6 +21,19 @@ def make_pose(**overrides):
     )
     values.update(overrides)
     return Pose(**values)
+
+
+def make_score(**overrides):
+    values = dict(
+        pose_id=make_pose().pose_id,
+        kind=ScoreKind.VINA_AFFINITY,
+        value=-8.7,
+        unit="kcal/mol",
+        method="vina",
+        method_version="1.2.x",
+    )
+    values.update(overrides)
+    return PoseScore(**values)
 
 
 def test_pose_identity_depends_on_geometry_not_score_or_rank():
@@ -45,32 +60,35 @@ def test_pose_rejects_invalid_geometry_hash_and_model_index():
 
 
 def test_pose_score_has_explicit_semantics():
-    pose = make_pose()
-    score = PoseScore(
-        pose_id=pose.pose_id,
-        kind=ScoreKind.VINA_AFFINITY,
-        value=-8.7,
-        unit="kcal/mol",
-        method="vina",
-        method_version="1.2.x",
-    )
+    score = make_score()
 
     assert score.kind is ScoreKind.VINA_AFFINITY
     assert score.value == -8.7
 
 
 def test_pose_score_rejects_untyped_kind():
-    pose = make_pose()
-
     with pytest.raises(DomainValidationError, match="ScoreKind"):
-        PoseScore(
-            pose_id=pose.pose_id,
-            kind="vina_affinity",
-            value=-8.7,
-            unit="kcal/mol",
-            method="vina",
-            method_version="1.2.x",
-        )
+        make_score(kind="vina_affinity")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pose_id", " "),
+        ("value", math.nan),
+        ("value", math.inf),
+        ("unit", " "),
+        ("method", " "),
+        ("method_version", " "),
+    ],
+)
+def test_pose_score_rejects_invalid_semantics(field, value):
+    with pytest.raises(DomainValidationError):
+        make_score(**{field: value})
+
+
+def test_pose_score_allows_unspecified_unit():
+    assert make_score(unit=None).unit is None
 
 
 def test_ranking_is_separate_from_pose_identity():
@@ -89,3 +107,12 @@ def test_ranking_is_separate_from_pose_identity():
 def test_ranking_starts_at_one(rank):
     with pytest.raises(DomainValidationError):
         PoseRanking(pose_id="pose_1", rank=rank, method="vina_affinity")
+
+
+@pytest.mark.parametrize(
+    ("pose_id", "method"),
+    [(" ", "vina_affinity"), ("pose_1", " ")],
+)
+def test_ranking_rejects_blank_identifiers(pose_id, method):
+    with pytest.raises(DomainValidationError):
+        PoseRanking(pose_id=pose_id, rank=1, method=method)

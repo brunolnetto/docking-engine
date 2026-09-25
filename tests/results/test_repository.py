@@ -1,5 +1,6 @@
 import pytest
 
+import moldock.domain.result as result_module
 from moldock.domain import (
     DomainValidationError,
     Pose,
@@ -20,6 +21,17 @@ def make_pose(index=1, sha="a" * 64):
     )
 
 
+def make_score(pose_id, value=-8.0):
+    return PoseScore(
+        pose_id=pose_id,
+        kind=ScoreKind.VINA_AFFINITY,
+        value=value,
+        unit="kcal/mol",
+        method="vina",
+        method_version="1.2.7",
+    )
+
+
 def test_memory_repository_implements_contract():
     assert isinstance(InMemoryScientificResultRepository(), ScientificResultRepository)
 
@@ -27,14 +39,7 @@ def test_memory_repository_implements_contract():
 def test_repository_registers_and_lists_pose_data():
     repo = InMemoryScientificResultRepository()
     pose = make_pose()
-    score = PoseScore(
-        pose_id=pose.pose_id,
-        kind=ScoreKind.VINA_AFFINITY,
-        value=-8.0,
-        unit="kcal/mol",
-        method="vina",
-        method_version="1.2.7",
-    )
+    score = make_score(pose.pose_id)
     ranking = PoseRanking(pose_id=pose.pose_id, rank=1, method="vina_affinity")
 
     repo.register_pose(pose)
@@ -46,31 +51,90 @@ def test_repository_registers_and_lists_pose_data():
     assert repo.list_rankings_for_pose(pose.pose_id) == (ranking,)
 
 
-def test_repository_registration_is_idempotent_but_rejects_conflicts():
+def test_repository_registration_is_idempotent():
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    score = make_score(pose.pose_id)
+    ranking = PoseRanking(pose_id=pose.pose_id, rank=1, method="vina_affinity")
+
+    repo.register_pose(pose)
+    repo.register_pose(pose)
+    repo.register_score(score)
+    repo.register_score(score)
+    repo.register_ranking(ranking)
+    repo.register_ranking(ranking)
+
+    assert repo.list_poses_for_attempt(pose.attempt_id) == (pose,)
+    assert repo.list_scores_for_pose(pose.pose_id) == (score,)
+    assert repo.list_rankings_for_pose(pose.pose_id) == (ranking,)
+
+
+def test_repository_rejects_unknown_pose_for_score_and_ranking():
+    repo = InMemoryScientificResultRepository()
+
+    with pytest.raises(DomainValidationError, match="unknown pose"):
+        repo.register_score(make_score("missing"))
+
+    with pytest.raises(DomainValidationError, match="unknown pose"):
+        repo.register_ranking(
+            PoseRanking(pose_id="missing", rank=1, method="vina_affinity")
+        )
+
+
+def test_repository_detects_pose_id_collision(monkeypatch):
+    monkeypatch.setattr(
+        result_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
+    )
+    repo = InMemoryScientificResultRepository()
+    first = make_pose(sha="a" * 64)
+    second = make_pose(sha="b" * 64)
+
+    assert first.pose_id == second.pose_id
+    repo.register_pose(first)
+
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register_pose(second)
+
+
+def test_repository_detects_score_id_collision(monkeypatch):
     repo = InMemoryScientificResultRepository()
     pose = make_pose()
     repo.register_pose(pose)
-    repo.register_pose(pose)
+    pose_id = pose.pose_id
 
-    conflicting = Pose(
-        task_id=pose.task_id,
-        attempt_id=pose.attempt_id,
-        source_artifact_id=pose.source_artifact_id,
-        model_index=pose.model_index,
-        geometry_sha256="b" * 64,
+    monkeypatch.setattr(
+        result_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
     )
+    first = make_score(pose_id, value=-8.0)
+    second = make_score(pose_id, value=-7.0)
 
-    assert conflicting.pose_id != pose.pose_id
-    repo.register_pose(conflicting)
+    assert first.score_id == second.score_id
+    repo.register_score(first)
 
-    with pytest.raises(DomainValidationError):
-        repo.register_score(
-            PoseScore(
-                pose_id="missing",
-                kind=ScoreKind.VINA_AFFINITY,
-                value=-7.0,
-                unit="kcal/mol",
-                method="vina",
-                method_version="1.2.7",
-            )
-        )
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register_score(second)
+
+
+def test_repository_detects_ranking_id_collision(monkeypatch):
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    repo.register_pose(pose)
+    pose_id = pose.pose_id
+
+    monkeypatch.setattr(
+        result_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
+    )
+    first = PoseRanking(pose_id=pose_id, rank=1, method="vina_affinity")
+    second = PoseRanking(pose_id=pose_id, rank=2, method="vina_affinity")
+
+    assert first.ranking_id == second.ranking_id
+    repo.register_ranking(first)
+
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register_ranking(second)
