@@ -95,3 +95,60 @@ def test_failed_attempt_requires_non_blank_error():
 
     with pytest.raises(DomainValidationError):
         running.fail(T0 + timedelta(seconds=1), " ")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"status": TaskStatus.PENDING, "started_at": T0},
+        {
+            "status": TaskStatus.PENDING,
+            "started_at": T0,
+            "finished_at": T0 + timedelta(seconds=1),
+        },
+        {"status": TaskStatus.RUNNING},
+        {
+            "status": TaskStatus.RUNNING,
+            "started_at": T0,
+            "finished_at": T0 + timedelta(seconds=1),
+        },
+        {"status": TaskStatus.SUCCEEDED},
+        {"status": TaskStatus.SUCCEEDED, "started_at": T0},
+        {
+            "status": TaskStatus.FAILED,
+            "started_at": T0,
+            "finished_at": T0 + timedelta(seconds=1),
+            "error": " ",
+        },
+    ],
+)
+def test_attempt_constructor_rejects_state_timestamp_mismatches(overrides):
+    with pytest.raises(DomainValidationError):
+        make_attempt(**overrides)
+
+
+def test_attempt_constructor_accepts_valid_running_state():
+    attempt = make_attempt(status=TaskStatus.RUNNING, started_at=T0)
+
+    assert attempt.status is TaskStatus.RUNNING
+
+
+def test_attempt_constructor_accepts_valid_succeeded_state():
+    attempt = make_attempt(
+        status=TaskStatus.SUCCEEDED,
+        started_at=T0,
+        finished_at=T0 + timedelta(seconds=1),
+    )
+
+    assert attempt.status is TaskStatus.SUCCEEDED
+
+
+def test_attempt_constructor_accepts_valid_failed_state():
+    attempt = make_attempt(
+        status=TaskStatus.FAILED,
+        started_at=T0,
+        finished_at=T0 + timedelta(seconds=1),
+        error="worker lost",
+    )
+
+    assert attempt.status is TaskStatus.FAILED

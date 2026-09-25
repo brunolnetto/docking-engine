@@ -59,6 +59,30 @@ def test_parameters_are_not_mutable_after_construction():
         experiment.parameters["exhaustiveness"] = 16
 
 
+def test_nested_parameters_are_deeply_immutable_and_identity_stays_stable():
+    source = {
+        "search": {
+            "weights": [1.0, 2.0],
+            "options": {"local_only": False},
+        }
+    }
+    experiment = make_experiment(parameters=source)
+    original_id = experiment.experiment_id
+
+    source["search"]["weights"].append(3.0)
+    source["search"]["options"]["local_only"] = True
+
+    assert experiment.experiment_id == original_id
+    assert experiment.parameters["search"]["weights"] == (1.0, 2.0)
+    assert experiment.parameters["search"]["options"]["local_only"] is False
+
+    with pytest.raises(TypeError):
+        experiment.parameters["search"]["options"]["local_only"] = True
+
+    with pytest.raises(TypeError):
+        experiment.parameters["search"]["weights"][0] = 99.0
+
+
 def test_required_field_cannot_be_blank():
     with pytest.raises(DomainValidationError):
         make_experiment(backend=" ")
