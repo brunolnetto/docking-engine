@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from moldock.domain import DockingOutputArtifact, DockingResult, DockingTask
+from moldock.domain import (
+    DockingExecutionRequest,
+    DockingOutputArtifact,
+    DockingResult,
+)
 
 from .base import DockingBackendError
 
@@ -14,7 +18,8 @@ class FakeDockingBackend:
     def calls(self) -> tuple[str, ...]:
         return tuple(self._calls)
 
-    def execute(self, task: DockingTask) -> DockingResult:
+    def execute(self, request: DockingExecutionRequest) -> DockingResult:
+        task = request.task
         self._calls.append(task.task_id)
 
         if task.task_id in self._fail_task_ids:

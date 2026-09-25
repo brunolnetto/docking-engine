@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from moldock.domain import DockingResult, DockingTask
+from moldock.domain import DockingExecutionRequest, DockingResult
 
 
 class DockingBackendError(RuntimeError):
@@ -11,4 +11,4 @@ class DockingBackendError(RuntimeError):
 
 @runtime_checkable
 class DockingBackend(Protocol):
-    def execute(self, task: DockingTask) -> DockingResult: ...
+    def execute(self, request: DockingExecutionRequest) -> DockingResult: ...

@@ -4,56 +4,61 @@
 
 Domain-first foundations for a reproducible molecular docking execution system.
 
-## Current architecture
+## Current execution flow
 
 ```text
-Experiment
-   ↓
-TaskPlanner
-   ↓
-TaskManifest
-   ↓
 TaskRepository
-   ↓ claim
-Worker
-   ↓
+      │
+      ▼
+ Worker
+      │
+      ▼
+DockingInputResolver
+      │
+      ▼
+DockingExecutionRequest
+      │
+      ▼
 DockingBackend
-   ↓
+      │
+      ├── FakeDockingBackend
+      └── VinaBackend
+      │
+      ▼
 DockingResult
-   ↓
+      │
+      ▼
 ArtifactStore + ArtifactRepository
-   ↓
-TaskAttempt success/failure
 ```
 
-### Execution plane
+### Vina adapter
 
-- `DockingBackend`: runtime-checkable computational boundary.
-- `FakeDockingBackend`: deterministic backend used for orchestration tests.
-- `DockingResult`: backend result containing zero or more output artifacts.
-- `ArtifactStore`: byte-storage contract.
-- `MemoryArtifactStore`: content-addressed in-memory blob store with deduplication.
-- `Worker.run_once()`: claim, execute, persist output metadata, and finalize attempts.
+`VinaBackend` is a CLI adapter around AutoDock Vina. It receives already prepared receptor/ligand PDBQT bytes, a resolved docking box, and a constrained parameter mapping. It writes temporary PDBQT inputs, invokes Vina, captures stdout/stderr, and returns the raw output PDBQT as a docking artifact.
 
-Blob identity is based on content, while artifact identity is based on execution provenance. Two outputs with identical bytes can therefore share one blob without losing their distinct artifact records.
+Supported Vina parameters in this initial adapter:
 
-The current worker marks attempts failed when either backend execution or artifact persistence raises an exception. Failed attempts remain retryable through the task repository.
+- `exhaustiveness`
+- `num_modes`
+- `energy_range`
+- `seed`
+- `cpu`
+- `verbosity`
 
-### Still intentionally absent
+The adapter deliberately does not yet parse Vina scores. Raw PDBQT output remains the source artifact for the next scientific-results layer.
 
-- AutoDock Vina integration
-- receptor/ligand preparation tooling
-- PostgreSQL
-- S3/MinIO
-- leases and heartbeats
-- distributed worker orchestration
-- score/ranking refinement
+### Input resolution
 
-## Development
+`DockingInputResolver` separates task identity from executable scientific inputs. The in-memory implementation maps prepared receptor/ligand IDs, search-space IDs, and experiment parameters into a `DockingExecutionRequest`.
+
+This prevents backends from reaching directly into repositories or object storage.
+
+### Testing
+
+The Vina subprocess boundary is injected through a runner function, so CI verifies command construction, error handling, and output capture without requiring AutoDock Vina to be installed.
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-Coverage is configured in `pyproject.toml` with a **95% minimum** and runs in CI on Python 3.11 through 3.14.
+Coverage is configured in `pyproject.toml` with a 95% minimum and runs in CI on Python 3.11 through 3.14.

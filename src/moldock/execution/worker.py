@@ -8,6 +8,8 @@ from moldock.domain import ArtifactMetadata, TaskAttempt, content_id
 from moldock.repositories import ArtifactRepository, TaskRepository
 from moldock.storage import ArtifactStore
 
+from .resolver import DockingInputResolver
+
 
 class Worker:
     def __init__(
@@ -16,12 +18,14 @@ class Worker:
         task_repository: TaskRepository,
         artifact_repository: ArtifactRepository,
         artifact_store: ArtifactStore,
+        input_resolver: DockingInputResolver,
         backend: DockingBackend,
         clock: Callable[[], datetime],
     ) -> None:
         self._tasks = task_repository
         self._artifacts = artifact_repository
         self._store = artifact_store
+        self._resolver = input_resolver
         self._backend = backend
         self._clock = clock
 
@@ -50,7 +54,8 @@ class Worker:
             )
 
         try:
-            result = self._backend.execute(task)
+            request = self._resolver.resolve(task)
+            result = self._backend.execute(request)
             for index, output in enumerate(result.artifacts, start=1):
                 blob = self._store.put(output.content)
                 artifact = ArtifactMetadata(
