@@ -110,3 +110,41 @@ def test_heartbeat_validates_timing(interval, lease_duration):
             lease_duration=lease_duration,
             interval=interval,
         )
+
+
+
+def test_heartbeat_cannot_be_started_twice():
+    repo, attempt = make_attempt()
+    waiter = ControlledWaiter()
+    heartbeat = LeaseHeartbeat(
+        repository=repo,
+        attempt=attempt,
+        worker_id="worker_1",
+        clock=lambda: T0,
+        lease_duration=timedelta(minutes=1),
+        interval=timedelta(seconds=10),
+        waiter=waiter,
+    )
+
+    heartbeat.start()
+    try:
+        with pytest.raises(RuntimeError, match="already started"):
+            heartbeat.start()
+    finally:
+        heartbeat.stop()
+
+
+def test_stopping_never_started_heartbeat_is_safe():
+    repo, attempt = make_attempt()
+    heartbeat = LeaseHeartbeat(
+        repository=repo,
+        attempt=attempt,
+        worker_id="worker_1",
+        clock=lambda: T0,
+        lease_duration=timedelta(minutes=1),
+        interval=timedelta(seconds=10),
+    )
+
+    heartbeat.stop()
+
+    assert heartbeat.error is None
