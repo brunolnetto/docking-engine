@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from moldock.backends import DockingBackend
-from moldock.domain import ArtifactMetadata, TaskAttempt, content_id
+from moldock.domain import (
+    ArtifactMetadata,
+    ExecutionFailure,
+    FailureKind,
+    TaskAttempt,
+    content_id,
+)
 from moldock.repositories import ArtifactRepository, TaskRepository
 from moldock.results import (
     NullScientificResultInterpreter,
@@ -10,6 +16,15 @@ from moldock.results import (
 from moldock.storage import ArtifactStore
 
 from .resolver import DockingInputResolver
+
+
+def _wrap_failure(kind: FailureKind, exc: Exception) -> ExecutionFailure:
+    if isinstance(exc, ExecutionFailure):
+        return exc
+    return ExecutionFailure(
+        kind,
+        f"{type(exc).__name__}: {exc}",
+    )
 
 
 class TaskExecutor:
@@ -37,32 +52,49 @@ class TaskExecutor:
     def execute(self, attempt: TaskAttempt) -> None:
         task = self._tasks.get(attempt.task_id)
         if task is None:
-            raise RuntimeError(f"claimed task not found: {attempt.task_id}")
+            raise ExecutionFailure(
+                FailureKind.INFRASTRUCTURE,
+                f"claimed task not found: {attempt.task_id}",
+            )
 
-        request = self._resolver.resolve(task)
-        result = self._backend.execute(request)
+        try:
+            request = self._resolver.resolve(task)
+        except Exception as exc:
+            raise _wrap_failure(FailureKind.INPUT, exc) from exc
+
+        try:
+            result = self._backend.execute(request)
+        except Exception as exc:
+            raise _wrap_failure(FailureKind.BACKEND, exc) from exc
 
         for index, output in enumerate(result.artifacts, start=1):
-            blob = self._store.put(output.content)
-            artifact = ArtifactMetadata(
-                artifact_id=content_id(
-                    "artifact",
-                    {
-                        "attempt_id": attempt.attempt_id,
-                        "index": index,
-                        "kind": output.kind,
-                        "blob_id": blob.blob_id,
-                    },
-                ),
-                uri=blob.uri,
-                sha256=blob.sha256,
-                size_bytes=blob.size_bytes,
-                media_type=output.media_type,
-                kind=output.kind,
-                producer_attempt_id=attempt.attempt_id,
-            )
-            self._artifacts.register(artifact)
-            self._interpreter.interpret(
-                task_id=task.task_id,
-                artifact=artifact,
-            )
+            try:
+                blob = self._store.put(output.content)
+                artifact = ArtifactMetadata(
+                    artifact_id=content_id(
+                        "artifact",
+                        {
+                            "attempt_id": attempt.attempt_id,
+                            "index": index,
+                            "kind": output.kind,
+                            "blob_id": blob.blob_id,
+                        },
+                    ),
+                    uri=blob.uri,
+                    sha256=blob.sha256,
+                    size_bytes=blob.size_bytes,
+                    media_type=output.media_type,
+                    kind=output.kind,
+                    producer_attempt_id=attempt.attempt_id,
+                )
+                self._artifacts.register(artifact)
+            except Exception as exc:
+                raise _wrap_failure(FailureKind.ARTIFACT, exc) from exc
+
+            try:
+                self._interpreter.interpret(
+                    task_id=task.task_id,
+                    artifact=artifact,
+                )
+            except Exception as exc:
+                raise _wrap_failure(FailureKind.INTERPRETATION, exc) from exc

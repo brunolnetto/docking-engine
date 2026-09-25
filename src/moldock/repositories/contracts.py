@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Protocol, runtime_checkable
 
-from moldock.domain import ArtifactMetadata, DockingTask, TaskAttempt
+from moldock.domain import (
+    ArtifactMetadata,
+    DockingTask,
+    FailureKind,
+    TaskAttempt,
+)
 
 
 @runtime_checkable
@@ -35,7 +40,13 @@ class TaskRepository(Protocol):
 
     def succeed(self, attempt_id: str, at: datetime) -> TaskAttempt: ...
 
-    def fail(self, attempt_id: str, at: datetime, error: str) -> TaskAttempt: ...
+    def fail(
+        self,
+        attempt_id: str,
+        at: datetime,
+        error: str,
+        failure_kind: FailureKind,
+    ) -> TaskAttempt: ...
 
     def attempts_for(
         self,

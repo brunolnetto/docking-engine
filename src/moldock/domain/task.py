@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 from .common import DomainValidationError, content_id
+from .failure import FailureKind
 
 
 class TaskStatus(str, Enum):
@@ -80,6 +81,7 @@ class TaskAttempt:
     lease_expires_at: datetime | None = None
     status: TaskStatus = TaskStatus.PENDING
     error: str | None = None
+    failure_kind: FailureKind | None = None
 
     def __post_init__(self) -> None:
         if self.attempt_number < 1:
@@ -109,10 +111,11 @@ class TaskAttempt:
                     self.heartbeat_at,
                     self.lease_expires_at,
                     self.error,
+                    self.failure_kind,
                 )
             ):
                 raise DomainValidationError(
-                    "pending attempt cannot have timestamps, lease state, or error"
+                    "pending attempt cannot have timestamps, lease state, or failure"
                 )
             return
 
@@ -121,8 +124,10 @@ class TaskAttempt:
                 raise DomainValidationError("running attempt must have started_at")
             if self.finished_at is not None:
                 raise DomainValidationError("running attempt cannot have finished_at")
-            if self.error is not None:
-                raise DomainValidationError("running attempt cannot have an error")
+            if self.error is not None or self.failure_kind is not None:
+                raise DomainValidationError(
+                    "running attempt cannot have failure metadata"
+                )
             if self.heartbeat_at is None:
                 raise DomainValidationError("running attempt must have heartbeat_at")
             if self.lease_expires_at is None:
@@ -140,8 +145,10 @@ class TaskAttempt:
                 raise DomainValidationError(
                     "successful attempt must have started_at and finished_at"
                 )
-            if self.error is not None:
-                raise DomainValidationError("successful attempt cannot include an error")
+            if self.error is not None or self.failure_kind is not None:
+                raise DomainValidationError(
+                    "successful attempt cannot include failure metadata"
+                )
             if self.heartbeat_at is not None or self.lease_expires_at is not None:
                 raise DomainValidationError(
                     "successful attempt cannot retain lease state"
@@ -155,6 +162,10 @@ class TaskAttempt:
                 )
             if not self.error or not self.error.strip():
                 raise DomainValidationError("failed attempt must include an error")
+            if not isinstance(self.failure_kind, FailureKind):
+                raise DomainValidationError(
+                    "failed attempt must include a FailureKind"
+                )
             if self.heartbeat_at is not None or self.lease_expires_at is not None:
                 raise DomainValidationError(
                     "failed attempt cannot retain lease state"
@@ -218,13 +229,21 @@ class TaskAttempt:
             heartbeat_at=None,
             lease_expires_at=None,
             error=None,
+            failure_kind=None,
         )
 
-    def fail(self, at: datetime, error: str) -> "TaskAttempt":
+    def fail(
+        self,
+        at: datetime,
+        error: str,
+        failure_kind: FailureKind,
+    ) -> "TaskAttempt":
         if self.status is not TaskStatus.RUNNING or self.started_at is None:
             raise DomainValidationError("only running attempts can fail")
         if not error.strip():
             raise DomainValidationError("failure must include an error")
+        if not isinstance(failure_kind, FailureKind):
+            raise DomainValidationError("failure_kind must be a FailureKind")
         if at < self.started_at:
             raise DomainValidationError("completion cannot precede start")
         return replace(
@@ -234,4 +253,5 @@ class TaskAttempt:
             heartbeat_at=None,
             lease_expires_at=None,
             error=error,
+            failure_kind=failure_kind,
         )
