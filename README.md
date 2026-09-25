@@ -4,7 +4,7 @@
 
 Domain-first foundations for a reproducible molecular docking execution system.
 
-The project intentionally separates scientific identity, planning, execution, and infrastructure so docking backends can be added without defining the domain model around a particular CLI.
+The project separates scientific identity, planning, execution state, persistence contracts, and infrastructure so docking backends can be added without defining the domain around a particular CLI or database.
 
 ## Current architecture
 
@@ -12,22 +12,31 @@ The project intentionally separates scientific identity, planning, execution, an
 
 - `DockingExperiment`: immutable scientific intent with content-addressed identity.
 - `DockingBox`: explicit docking search-space definition.
-- `PreparedReceptor`: reference to a receptor artifact produced by a known preparation recipe.
-- `PreparedLigand`: reference to a ligand artifact produced by a known preparation recipe.
-- `DockingTask`: one independently executable prepared receptor × prepared ligand unit.
+- `PreparedReceptor` and `PreparedLigand`: prepared scientific artifact references.
+- `DockingTask`: one independently executable receptor × ligand unit.
 - `ExperimentRun`: one execution of an experiment.
 - `TaskAttempt`: retry-aware execution state machine.
-- `DockingPose`: immutable result metadata pointing to an external artifact.
+- `DockingPose`: immutable pose result metadata.
+- `ArtifactMetadata`: immutable metadata for externally stored artifacts.
 
 ### Planning
 
 - `TaskPlanner`: pure expansion of an experiment plus prepared inputs into deterministic tasks.
 - `TaskManifest`: immutable, deterministically ordered execution contract.
-- duplicate prepared inputs are deduplicated only when their complete provenance is identical.
+- exact duplicate prepared inputs are deduplicated.
 - task-ID collisions with conflicting provenance are rejected.
-- completed task IDs can be filtered without mutating the manifest.
 
-The planner performs no docking, storage, scheduling, or network I/O.
+### Repository contracts
+
+- `TaskRepository`: task registration, deterministic claiming, attempt completion, retry history.
+- `ArtifactRepository`: idempotent artifact metadata registration and provenance lookup.
+- in-memory adapters provide executable contract implementations without database dependencies.
+
+Execution attempts are scoped to a `run_id`: success makes a task terminal for that run, while a new run may intentionally execute the same task again. Failed attempts are retryable with monotonically increasing attempt numbers.
+
+The in-memory task repository provides process-local claim semantics. A future PostgreSQL adapter will preserve the same interface while implementing cross-worker atomic claims transactionally.
+
+Artifact repositories store metadata only. Molecular files and docking outputs remain external immutable artifacts addressed by URI and checksum.
 
 ## Development
 
