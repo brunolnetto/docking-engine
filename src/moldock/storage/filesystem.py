@@ -9,13 +9,44 @@ from urllib.parse import unquote, urlparse
 from moldock.domain import DomainValidationError, StoredBlob
 
 
+def _fsync_directory(path: Path) -> None:
+    """Persist directory-entry updates when the platform supports it."""
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        if os.name == "nt":
+            return
+        raise
+
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _mkdir_durable(path: Path) -> None:
+    """Create a directory hierarchy and fsync every new parent entry."""
+
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+
+    for directory in reversed(missing):
+        directory.mkdir(exist_ok=True)
+        _fsync_directory(directory.parent)
+
+
 class FilesystemArtifactStore:
     """Content-addressed artifact storage rooted in a local directory."""
 
     def __init__(self, root: str | Path) -> None:
         self._root = Path(root).resolve()
         self._blob_root = self._root / "sha256"
-        self._blob_root.mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(self._blob_root)
 
     def put(self, content: bytes) -> StoredBlob:
         if not isinstance(content, bytes):
@@ -24,7 +55,7 @@ class FilesystemArtifactStore:
         sha256 = hashlib.sha256(content).hexdigest()
         blob_id = f"blob_{sha256}"
         path = self._path_for_digest(sha256)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        _mkdir_durable(path.parent)
 
         if path.exists():
             self._verify(path, sha256)
@@ -40,6 +71,7 @@ class FilesystemArtifactStore:
                     handle.flush()
                     os.fsync(handle.fileno())
                 os.replace(temporary, path)
+                _fsync_directory(path.parent)
             finally:
                 if temporary.exists():
                     temporary.unlink()
@@ -67,8 +99,7 @@ class FilesystemArtifactStore:
         if not path.is_file():
             raise DomainValidationError(f"unknown blob: {blob_id}")
 
-        self._verify(path, digest.lower())
-        return path.read_bytes()
+        return self._verify(path, digest.lower())
 
     def read(self, uri: str) -> bytes:
         parsed = urlparse(uri)
@@ -106,10 +137,11 @@ class FilesystemArtifactStore:
         )
 
     @staticmethod
-    def _verify(path: Path, expected_sha256: str) -> None:
+    def _verify(path: Path, expected_sha256: str) -> bytes:
         content = path.read_bytes()
         actual = hashlib.sha256(content).hexdigest()
         if actual != expected_sha256:
             raise DomainValidationError(
                 f"artifact integrity check failed: {path}"
             )
+        return content
