@@ -28,6 +28,17 @@ def make_task(**overrides):
     return DockingTask(**values)
 
 
+def make_run(**overrides):
+    values = dict(
+        run_id="run_1",
+        experiment_id="exp_1",
+        runtime_version="0.1.0",
+        started_at=T0,
+    )
+    values.update(overrides)
+    return ExperimentRun(**values)
+
+
 def make_attempt(**overrides):
     values = dict(
         attempt_id="attempt_1",
@@ -49,15 +60,39 @@ def test_task_identity_depends_on_prepared_inputs_and_experiment():
     assert a.task_id != c.task_id
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "experiment_id",
+        "receptor_id",
+        "ligand_id",
+        "prepared_receptor_id",
+        "prepared_ligand_id",
+        "search_space_id",
+    ],
+)
+def test_task_rejects_blank_required_identifiers(field):
+    with pytest.raises(DomainValidationError):
+        make_task(**{field: " "})
+
+
+def test_run_can_remain_open_or_finish_after_it_starts():
+    open_run = make_run()
+    finished_run = make_run(finished_at=T0 + timedelta(seconds=1))
+
+    assert open_run.finished_at is None
+    assert finished_run.finished_at == T0 + timedelta(seconds=1)
+
+
+@pytest.mark.parametrize("field", ["run_id", "experiment_id", "runtime_version"])
+def test_run_rejects_blank_required_metadata(field):
+    with pytest.raises(DomainValidationError):
+        make_run(**{field: " "})
+
+
 def test_run_can_finish_only_after_it_starts():
     with pytest.raises(DomainValidationError):
-        ExperimentRun(
-            run_id="run_1",
-            experiment_id="exp_1",
-            runtime_version="0.1.0",
-            started_at=T0,
-            finished_at=T0 - timedelta(seconds=1),
-        )
+        make_run(finished_at=T0 - timedelta(seconds=1))
 
 
 def test_attempt_happy_path_pending_running_succeeded():
@@ -85,22 +120,35 @@ def test_attempt_can_fail_with_error():
     assert failed.error == "vina process exited with code 1"
 
 
-def test_pending_attempt_cannot_succeed_without_starting():
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("attempt_number", 0),
+        ("attempt_id", " "),
+        ("task_id", " "),
+        ("run_id", " "),
+        ("worker_id", " "),
+    ],
+)
+def test_attempt_rejects_invalid_identity_metadata(field, value):
     with pytest.raises(DomainValidationError):
-        make_attempt().succeed(T0)
+        make_attempt(**{field: value})
 
 
-def test_failed_attempt_requires_non_blank_error():
-    running = make_attempt().start(T0)
-
+def test_attempt_rejects_completion_before_start_on_direct_construction():
     with pytest.raises(DomainValidationError):
-        running.fail(T0 + timedelta(seconds=1), " ")
+        make_attempt(
+            status=TaskStatus.SUCCEEDED,
+            started_at=T0,
+            finished_at=T0 - timedelta(seconds=1),
+        )
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
         {"status": TaskStatus.PENDING, "started_at": T0},
+        {"status": TaskStatus.PENDING, "error": "unexpected"},
         {
             "status": TaskStatus.PENDING,
             "started_at": T0,
@@ -112,8 +160,16 @@ def test_failed_attempt_requires_non_blank_error():
             "started_at": T0,
             "finished_at": T0 + timedelta(seconds=1),
         },
+        {"status": TaskStatus.RUNNING, "started_at": T0, "error": "premature"},
         {"status": TaskStatus.SUCCEEDED},
         {"status": TaskStatus.SUCCEEDED, "started_at": T0},
+        {
+            "status": TaskStatus.SUCCEEDED,
+            "started_at": T0,
+            "finished_at": T0 + timedelta(seconds=1),
+            "error": "should not exist",
+        },
+        {"status": TaskStatus.FAILED, "started_at": T0, "error": "failure"},
         {
             "status": TaskStatus.FAILED,
             "started_at": T0,
@@ -125,6 +181,11 @@ def test_failed_attempt_requires_non_blank_error():
 def test_attempt_constructor_rejects_state_timestamp_mismatches(overrides):
     with pytest.raises(DomainValidationError):
         make_attempt(**overrides)
+
+
+def test_attempt_constructor_rejects_unsupported_status():
+    with pytest.raises(DomainValidationError):
+        make_attempt(status="CANCELLED")
 
 
 def test_attempt_constructor_accepts_valid_running_state():
@@ -152,3 +213,41 @@ def test_attempt_constructor_accepts_valid_failed_state():
     )
 
     assert attempt.status is TaskStatus.FAILED
+
+
+def test_only_pending_attempt_can_start():
+    running = make_attempt(status=TaskStatus.RUNNING, started_at=T0)
+
+    with pytest.raises(DomainValidationError):
+        running.start(T0 + timedelta(seconds=1))
+
+
+def test_pending_attempt_cannot_succeed_without_starting():
+    with pytest.raises(DomainValidationError):
+        make_attempt().succeed(T0)
+
+
+def test_attempt_cannot_succeed_before_it_started():
+    running = make_attempt().start(T0)
+
+    with pytest.raises(DomainValidationError):
+        running.succeed(T0 - timedelta(seconds=1))
+
+
+def test_only_running_attempt_can_fail():
+    with pytest.raises(DomainValidationError):
+        make_attempt().fail(T0, "failure")
+
+
+def test_failed_attempt_requires_non_blank_error():
+    running = make_attempt().start(T0)
+
+    with pytest.raises(DomainValidationError):
+        running.fail(T0 + timedelta(seconds=1), " ")
+
+
+def test_attempt_cannot_fail_before_it_started():
+    running = make_attempt().start(T0)
+
+    with pytest.raises(DomainValidationError):
+        running.fail(T0 - timedelta(seconds=1), "clock skew")
