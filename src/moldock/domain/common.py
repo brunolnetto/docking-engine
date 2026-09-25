@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Set
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
@@ -19,14 +20,14 @@ def _canonicalize(value: Any) -> Any:
         return value.value
     if isinstance(value, datetime):
         return value.isoformat()
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {
             str(key): _canonicalize(item)
             for key, item in sorted(value.items(), key=lambda kv: str(kv[0]))
         }
     if isinstance(value, (list, tuple)):
         return [_canonicalize(item) for item in value]
-    if isinstance(value, set):
+    if isinstance(value, Set) and not isinstance(value, (str, bytes, bytearray)):
         return sorted(_canonicalize(item) for item in value)
     return value
 
@@ -37,6 +38,7 @@ def canonical_json(value: Any) -> str:
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
+        allow_nan=False,
     )
 
 
