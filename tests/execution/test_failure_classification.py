@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from moldock.backends import DockingBackendError
+from moldock.backends import DockingBackendError, DockingBackendTimeoutError
 from moldock.domain import (
     DockingBox,
     DockingTask,
@@ -154,3 +154,26 @@ def test_missing_claimed_task_is_classified_as_infrastructure():
         executor.execute(attempt)
 
     assert error.value.kind is FailureKind.INFRASTRUCTURE
+
+
+class TimingOutBackend:
+    def execute(self, request):
+        raise DockingBackendTimeoutError("vina timed out after 30 seconds")
+
+
+def test_backend_timeouts_are_classified_as_timeout():
+    resolver = MemoryDockingInputResolver()
+    box = DockingBox(1, 2, 3, 20, 20, 20)
+    resolver.register_receptor("prepared_rec_1", b"REC")
+    resolver.register_ligand("prepared_lig_1", b"LIG")
+    resolver.register_search_space(box)
+
+    executor, attempt, _ = make_claimed_executor(
+        resolver=resolver,
+        backend=TimingOutBackend(),
+    )
+
+    with pytest.raises(ExecutionFailure) as error:
+        executor.execute(attempt)
+
+    assert error.value.kind is FailureKind.TIMEOUT
