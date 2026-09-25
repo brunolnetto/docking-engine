@@ -4,6 +4,7 @@ from .common import DomainValidationError, content_id
 from .execution import DockingOutputArtifact, DockingResult
 from .execution_request import DockingExecutionRequest
 from .experiment import DockingExperiment
+from .protocol import DockingProtocol
 from .failure import ExecutionFailure, FailureKind
 from .prepared import PreparedLigand, PreparedReceptor
 from .result import Pose, PoseRanking, PoseScore, ScoreKind
@@ -20,6 +21,7 @@ __all__ = [
     "DomainValidationError",
     "content_id",
     "DockingExperiment",
+    "DockingProtocol",
     "DockingBox",
     "PreparedLigand",
     "PreparedReceptor",
