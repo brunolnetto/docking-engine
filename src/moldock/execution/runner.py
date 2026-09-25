@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from threading import Event
+from threading import Event, Lock
 from typing import Protocol
 
-from moldock.domain import TaskAttempt, TaskStatus
+from moldock.domain import DomainValidationError, TaskAttempt, TaskStatus
 from moldock.repositories import TaskRepository
 
 from .executor import TaskExecutor
@@ -40,10 +40,20 @@ class LeasedWorkerRunner:
         self._tasks = task_repository
         self._executor = executor
         self._clock = clock
+        if lease_duration <= timedelta(0):
+            raise DomainValidationError("lease_duration must be > 0")
+        if heartbeat_interval <= timedelta(0):
+            raise DomainValidationError("heartbeat interval must be > 0")
+        if heartbeat_interval >= lease_duration:
+            raise DomainValidationError(
+                "heartbeat interval must be shorter than lease duration"
+            )
+
         self._lease_duration = lease_duration
         self._heartbeat_interval = heartbeat_interval
         self._heartbeat_factory = heartbeat_factory
         self._stopped = Event()
+        self._claim_lock = Lock()
 
     @property
     def stopped(self) -> bool:
@@ -51,7 +61,8 @@ class LeasedWorkerRunner:
 
     def stop(self) -> None:
         """Prevent future claims without cancelling the active attempt."""
-        self._stopped.set()
+        with self._claim_lock:
+            self._stopped.set()
 
     def run_once(
         self,
@@ -59,16 +70,16 @@ class LeasedWorkerRunner:
         run_id: str,
         worker_id: str,
     ) -> TaskAttempt | None:
-        if self.stopped:
-            return None
-
-        attempt = self._tasks.claim_next(
-            experiment_id=experiment_id,
-            run_id=run_id,
-            worker_id=worker_id,
-            at=self._clock(),
-            lease_duration=self._lease_duration,
-        )
+        with self._claim_lock:
+            if self.stopped:
+                return None
+            attempt = self._tasks.claim_next(
+                experiment_id=experiment_id,
+                run_id=run_id,
+                worker_id=worker_id,
+                at=self._clock(),
+                lease_duration=self._lease_duration,
+            )
         if attempt is None:
             return None
 
@@ -90,27 +101,54 @@ class LeasedWorkerRunner:
         finally:
             heartbeat.stop()
 
-        latest = self._latest_attempt(attempt)
-        if latest.status is not TaskStatus.RUNNING:
-            return latest
+        current = self._current_attempt(attempt)
+        if current.status is not TaskStatus.RUNNING:
+            return current
 
         error = heartbeat.error or execution_error
         if error is not None:
-            return self._tasks.fail(
-                latest.attempt_id,
-                self._clock(),
-                f"{type(error).__name__}: {error}",
+            return self._finalize_attempt(
+                attempt,
+                lambda: self._tasks.fail(
+                    attempt.attempt_id,
+                    self._clock(),
+                    f"{type(error).__name__}: {error}",
+                ),
             )
 
-        return self._tasks.succeed(latest.attempt_id, self._clock())
+        return self._finalize_attempt(
+            attempt,
+            lambda: self._tasks.succeed(attempt.attempt_id, self._clock()),
+        )
 
-    def _latest_attempt(self, attempt: TaskAttempt) -> TaskAttempt:
+    def _current_attempt(self, attempt: TaskAttempt) -> TaskAttempt:
         history = self._tasks.attempts_for(
             attempt.task_id,
             attempt.run_id,
         )
-        if not history:
+        current = next(
+            (
+                item
+                for item in history
+                if item.attempt_id == attempt.attempt_id
+            ),
+            None,
+        )
+        if current is None:
             raise RuntimeError(
-                f"claimed attempt history disappeared: {attempt.attempt_id}"
+                f"claimed attempt disappeared: {attempt.attempt_id}"
             )
-        return history[-1]
+        return current
+
+    def _finalize_attempt(
+        self,
+        attempt: TaskAttempt,
+        finalize: Callable[[], TaskAttempt],
+    ) -> TaskAttempt:
+        try:
+            return finalize()
+        except DomainValidationError:
+            current = self._current_attempt(attempt)
+            if current.status is not TaskStatus.RUNNING:
+                return current
+            raise
