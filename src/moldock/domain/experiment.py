@@ -7,8 +7,16 @@ from typing import Any, Mapping
 from .common import DomainValidationError, content_id
 
 
-def _freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    return MappingProxyType(dict(value))
+def _deep_freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_deep_freeze(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_deep_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_deep_freeze(item) for item in value)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +46,7 @@ class DockingExperiment:
                 f"required fields must not be blank: {', '.join(blank)}"
             )
 
-        object.__setattr__(self, "parameters", _freeze_mapping(self.parameters))
+        object.__setattr__(self, "parameters", _deep_freeze(self.parameters))
 
     @property
     def experiment_id(self) -> str:
@@ -52,6 +60,6 @@ class DockingExperiment:
                 "backend_version": self.backend_version,
                 "receptor_preparation_id": self.receptor_preparation_id,
                 "ligand_preparation_id": self.ligand_preparation_id,
-                "parameters": dict(self.parameters),
+                "parameters": self.parameters,
             },
         )

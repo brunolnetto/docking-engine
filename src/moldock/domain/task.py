@@ -90,18 +90,49 @@ class TaskAttempt:
             raise DomainValidationError("run_id must not be blank")
         if not self.worker_id.strip():
             raise DomainValidationError("worker_id must not be blank")
-        if self.finished_at is not None and self.started_at is None:
-            raise DomainValidationError("finished attempt must have started_at")
+
         if (
             self.started_at is not None
             and self.finished_at is not None
             and self.finished_at < self.started_at
         ):
             raise DomainValidationError("finished_at cannot be before started_at")
-        if self.status is TaskStatus.FAILED and not self.error:
-            raise DomainValidationError("failed attempt must include an error")
-        if self.status is TaskStatus.SUCCEEDED and self.error is not None:
-            raise DomainValidationError("successful attempt cannot include an error")
+
+        if self.status is TaskStatus.PENDING:
+            if self.started_at is not None or self.finished_at is not None or self.error is not None:
+                raise DomainValidationError(
+                    "pending attempt cannot have timestamps or error"
+                )
+            return
+
+        if self.status is TaskStatus.RUNNING:
+            if self.started_at is None:
+                raise DomainValidationError("running attempt must have started_at")
+            if self.finished_at is not None:
+                raise DomainValidationError("running attempt cannot have finished_at")
+            if self.error is not None:
+                raise DomainValidationError("running attempt cannot have an error")
+            return
+
+        if self.status is TaskStatus.SUCCEEDED:
+            if self.started_at is None or self.finished_at is None:
+                raise DomainValidationError(
+                    "successful attempt must have started_at and finished_at"
+                )
+            if self.error is not None:
+                raise DomainValidationError("successful attempt cannot include an error")
+            return
+
+        if self.status is TaskStatus.FAILED:
+            if self.started_at is None or self.finished_at is None:
+                raise DomainValidationError(
+                    "failed attempt must have started_at and finished_at"
+                )
+            if not self.error or not self.error.strip():
+                raise DomainValidationError("failed attempt must include an error")
+            return
+
+        raise DomainValidationError(f"unsupported attempt status: {self.status!r}")
 
     def start(self, at: datetime) -> "TaskAttempt":
         if self.status is not TaskStatus.PENDING:
