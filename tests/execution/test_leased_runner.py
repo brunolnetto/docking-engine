@@ -306,3 +306,25 @@ def test_stop_is_serialized_with_claim():
     assert runner.stopped
     assert result_box["attempt"] is not None
     assert runner.run_once("exp_1", "run_1", "worker_2") is None
+
+
+def test_heartbeat_start_failure_finalizes_claimed_attempt_and_stops_controller():
+    class FailingStartHeartbeat(RecordingHeartbeat):
+        def start(self):
+            self.started = True
+            raise RuntimeError("cannot start heartbeat thread")
+
+    heartbeat = FailingStartHeartbeat()
+    executor = RecordingExecutor()
+    runner, repo, task, _, _ = make_runner(executor, heartbeat)
+
+    result = runner.run_once("exp_1", "run_1", "worker_1")
+
+    assert result is not None
+    assert result.status is TaskStatus.FAILED
+    assert "cannot start heartbeat thread" in result.error
+    assert heartbeat.started
+    assert heartbeat.stopped
+    assert executor.calls == []
+    history = repo.attempts_for(task.task_id, "run_1")
+    assert history == (result,)
