@@ -20,11 +20,9 @@ class FakeRustFSClient:
         self.objects = {}
         self.put_calls = []
 
-    def put_object(self, *, Bucket, Key, Body, Metadata, IfNoneMatch):
-        self.put_calls.append((Bucket, Key, IfNoneMatch))
+    def put_object(self, *, Bucket, Key, Body, Metadata):
+        self.put_calls.append((Bucket, Key))
         identity = (Bucket, Key)
-        if IfNoneMatch == "*" and identity in self.objects:
-            raise ClientError("PreconditionFailed")
         body = bytes(Body)
         self.objects[identity] = {
             "Body": body,
@@ -91,7 +89,7 @@ def test_put_writes_content_addressed_object_and_returns_restart_safe_uri():
     }
 
 
-def test_identical_content_uses_conditional_create_and_is_idempotent():
+def test_identical_content_reuses_verified_object_without_second_write():
     client = FakeRustFSClient()
     store = make_store(client)
 
@@ -100,8 +98,7 @@ def test_identical_content_uses_conditional_create_and_is_idempotent():
 
     assert first == second
     assert len(client.objects) == 1
-    assert len(client.put_calls) == 2
-    assert all(call[2] == "*" for call in client.put_calls)
+    assert len(client.put_calls) == 1
 
 
 def test_existing_object_is_verified_before_reuse():
