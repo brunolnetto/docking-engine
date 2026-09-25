@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from moldock.backends import DockingBackend
-from moldock.domain import ArtifactMetadata, TaskAttempt, content_id
+from moldock.domain import TaskAttempt
 from moldock.repositories import ArtifactRepository, TaskRepository
-from moldock.results import (
-    NullScientificResultInterpreter,
-    ScientificResultInterpreter,
-)
+from moldock.results import ScientificResultInterpreter
 from moldock.storage import ArtifactStore
 
+from .executor import TaskExecutor
 from .resolver import DockingInputResolver
+from .runner import LeasedWorkerRunner
 
 
 class Worker:
+    """Compatibility facade for one leased task execution."""
+
     def __init__(
         self,
         *,
@@ -26,16 +27,31 @@ class Worker:
         backend: DockingBackend,
         clock: Callable[[], datetime],
         result_interpreter: ScientificResultInterpreter | None = None,
+        lease_duration: timedelta = timedelta(minutes=5),
+        heartbeat_interval: timedelta = timedelta(minutes=1),
     ) -> None:
-        self._tasks = task_repository
-        self._artifacts = artifact_repository
-        self._store = artifact_store
-        self._resolver = input_resolver
-        self._backend = backend
-        self._clock = clock
-        self._interpreter = (
-            result_interpreter or NullScientificResultInterpreter()
+        executor = TaskExecutor(
+            task_repository=task_repository,
+            artifact_repository=artifact_repository,
+            artifact_store=artifact_store,
+            input_resolver=input_resolver,
+            backend=backend,
+            result_interpreter=result_interpreter,
         )
+        self._runner = LeasedWorkerRunner(
+            task_repository=task_repository,
+            executor=executor,
+            clock=clock,
+            lease_duration=lease_duration,
+            heartbeat_interval=heartbeat_interval,
+        )
+
+    @property
+    def stopped(self) -> bool:
+        return self._runner.stopped
+
+    def stop(self) -> None:
+        self._runner.stop()
 
     def run_once(
         self,
@@ -43,56 +59,4 @@ class Worker:
         run_id: str,
         worker_id: str,
     ) -> TaskAttempt | None:
-        started_at = self._clock()
-        attempt = self._tasks.claim_next(
-            experiment_id=experiment_id,
-            run_id=run_id,
-            worker_id=worker_id,
-            at=started_at,
-        )
-        if attempt is None:
-            return None
-
-        task = self._tasks.get(attempt.task_id)
-        if task is None:
-            return self._tasks.fail(
-                attempt.attempt_id,
-                self._clock(),
-                f"RuntimeError: claimed task not found: {attempt.task_id}",
-            )
-
-        try:
-            request = self._resolver.resolve(task)
-            result = self._backend.execute(request)
-            for index, output in enumerate(result.artifacts, start=1):
-                blob = self._store.put(output.content)
-                artifact = ArtifactMetadata(
-                    artifact_id=content_id(
-                        "artifact",
-                        {
-                            "attempt_id": attempt.attempt_id,
-                            "index": index,
-                            "kind": output.kind,
-                            "blob_id": blob.blob_id,
-                        },
-                    ),
-                    uri=blob.uri,
-                    sha256=blob.sha256,
-                    size_bytes=blob.size_bytes,
-                    media_type=output.media_type,
-                    kind=output.kind,
-                    producer_attempt_id=attempt.attempt_id,
-                )
-                self._artifacts.register(artifact)
-                self._interpreter.interpret(
-                    task_id=task.task_id,
-                    artifact=artifact,
-                )
-        except Exception as exc:
-            return self._tasks.fail(
-                attempt.attempt_id,
-                self._clock(),
-                f"{type(exc).__name__}: {exc}",
-            )
-
-        return self._tasks.succeed(attempt.attempt_id, self._clock())
+        return self._runner.run_once(experiment_id, run_id, worker_id)
