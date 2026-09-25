@@ -6,6 +6,10 @@ from datetime import datetime
 from moldock.backends import DockingBackend
 from moldock.domain import ArtifactMetadata, TaskAttempt, content_id
 from moldock.repositories import ArtifactRepository, TaskRepository
+from moldock.results import (
+    NullScientificResultInterpreter,
+    ScientificResultInterpreter,
+)
 from moldock.storage import ArtifactStore
 
 from .resolver import DockingInputResolver
@@ -21,6 +25,7 @@ class Worker:
         input_resolver: DockingInputResolver,
         backend: DockingBackend,
         clock: Callable[[], datetime],
+        result_interpreter: ScientificResultInterpreter | None = None,
     ) -> None:
         self._tasks = task_repository
         self._artifacts = artifact_repository
@@ -28,6 +33,9 @@ class Worker:
         self._resolver = input_resolver
         self._backend = backend
         self._clock = clock
+        self._interpreter = (
+            result_interpreter or NullScientificResultInterpreter()
+        )
 
     def run_once(
         self,
@@ -76,6 +84,10 @@ class Worker:
                     producer_attempt_id=attempt.attempt_id,
                 )
                 self._artifacts.register(artifact)
+                self._interpreter.interpret(
+                    task_id=task.task_id,
+                    artifact=artifact,
+                )
         except Exception as exc:
             return self._tasks.fail(
                 attempt.attempt_id,

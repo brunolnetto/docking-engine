@@ -5,7 +5,7 @@ from .execution import DockingOutputArtifact, DockingResult
 from .execution_request import DockingExecutionRequest
 from .experiment import DockingExperiment
 from .prepared import PreparedLigand, PreparedReceptor
-from .result import DockingPose
+from .result import Pose, PoseRanking, PoseScore, ScoreKind
 from .search_space import DockingBox
 from .task import DockingTask, ExperimentRun, TaskAttempt, TaskStatus
 
@@ -25,5 +25,8 @@ __all__ = [
     "ExperimentRun",
     "TaskAttempt",
     "TaskStatus",
-    "DockingPose",
+    "Pose",
+    "PoseScore",
+    "PoseRanking",
+    "ScoreKind",
 ]

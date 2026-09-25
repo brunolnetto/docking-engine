@@ -38,3 +38,9 @@ class MemoryArtifactStore:
                 return self._content[blob_id]
             except KeyError as exc:
                 raise DomainValidationError(f"unknown blob: {blob_id}") from exc
+
+    def read(self, uri: str) -> bytes:
+        prefix = "memory://blobs/"
+        if not uri.startswith(prefix):
+            raise DomainValidationError(f"unsupported memory artifact URI: {uri}")
+        return self.get(uri[len(prefix):])

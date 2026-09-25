@@ -4,57 +4,59 @@
 
 Domain-first foundations for a reproducible molecular docking execution system.
 
-## Current execution flow
+## Execution and scientific-result flow
 
 ```text
 TaskRepository
       │
       ▼
- Worker
+Worker
       │
       ▼
 DockingInputResolver
       │
       ▼
-DockingExecutionRequest
+DockingBackend (Vina / Fake)
       │
       ▼
-DockingBackend
+raw backend artifact
       │
-      ├── FakeDockingBackend
-      └── VinaBackend
-      │
-      ▼
-DockingResult
+      ├── ArtifactStore
+      ├── ArtifactRepository
       │
       ▼
-ArtifactStore + ArtifactRepository
+ScientificResultInterpreter
+      │
+      ▼
+Pose + PoseScore + PoseRanking
 ```
 
-### Vina adapter
+### Scientific result semantics
 
-`VinaBackend` is a CLI adapter around AutoDock Vina. It receives already prepared receptor/ligand PDBQT bytes, a resolved docking box, and a constrained parameter mapping. It writes temporary PDBQT inputs, invokes Vina, captures stdout/stderr, and returns the raw output PDBQT as a docking artifact.
+Pose geometry, score, and ranking are separate identities.
 
-Supported Vina parameters in this initial adapter:
+- `Pose` identifies a specific geometry derived from a raw backend artifact.
+- `PoseScore` records a typed scoring observation, including method and version.
+- `PoseRanking` records an ordering under a particular ranking method.
 
-- `exhaustiveness`
-- `num_modes`
-- `energy_range`
-- `seed`
-- `cpu`
-- `verbosity`
+This allows the same pose geometry to be rescored or reranked later without changing its pose identity.
 
-The adapter deliberately does not yet parse Vina scores. Raw PDBQT output remains the source artifact for the next scientific-results layer.
+### Vina result parsing
 
-### Input resolution
+`VinaResultParser` parses numbered PDBQT `MODEL` blocks and their `REMARK VINA RESULT` records into:
 
-`DockingInputResolver` separates task identity from executable scientific inputs. The in-memory implementation maps prepared receptor/ligand IDs, search-space IDs, and experiment parameters into a `DockingExecutionRequest`.
+- one `Pose` per model
+- one `VINA_AFFINITY` score per pose
+- one Vina-affinity ranking per pose
+- RMSD lower/upper bounds as score metadata
 
-This prevents backends from reaching directly into repositories or object storage.
+The raw PDBQT remains the immutable source artifact.
+
+### Artifact storage
+
+Blob storage and scientific provenance remain separate. `ArtifactStore.read(uri)` allows interpreters to retrieve bytes without depending on storage-specific URI parsing.
 
 ### Testing
-
-The Vina subprocess boundary is injected through a runner function, so CI verifies command construction, error handling, and output capture without requiring AutoDock Vina to be installed.
 
 ```bash
 python -m pip install -e ".[dev]"
