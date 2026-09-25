@@ -85,45 +85,58 @@ class DuckLakeTaskRepository:
         )
 
     def _initialize_schema(self) -> None:
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS moldock.tasks (
-                task_id VARCHAR,
-                experiment_id VARCHAR,
-                receptor_id VARCHAR,
-                ligand_id VARCHAR,
-                prepared_receptor_id VARCHAR,
-                prepared_ligand_id VARCHAR,
-                search_space_id VARCHAR
+        def operation() -> None:
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.tasks (
+                    task_id VARCHAR,
+                    experiment_id VARCHAR,
+                    receptor_id VARCHAR,
+                    ligand_id VARCHAR,
+                    prepared_receptor_id VARCHAR,
+                    prepared_ligand_id VARCHAR,
+                    search_space_id VARCHAR
+                )
+                """
             )
-            """
-        )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS moldock.attempts (
-                attempt_id VARCHAR,
-                task_id VARCHAR,
-                run_id VARCHAR,
-                attempt_number INTEGER,
-                worker_id VARCHAR,
-                started_at TIMESTAMPTZ,
-                finished_at TIMESTAMPTZ,
-                heartbeat_at TIMESTAMPTZ,
-                lease_expires_at TIMESTAMPTZ,
-                status VARCHAR,
-                error VARCHAR
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.attempts (
+                    attempt_id VARCHAR,
+                    task_id VARCHAR,
+                    run_id VARCHAR,
+                    attempt_number INTEGER,
+                    worker_id VARCHAR,
+                    started_at TIMESTAMPTZ,
+                    finished_at TIMESTAMPTZ,
+                    heartbeat_at TIMESTAMPTZ,
+                    lease_expires_at TIMESTAMPTZ,
+                    status VARCHAR,
+                    error VARCHAR
+                )
+                """
             )
-            """
-        )
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS moldock.claim_coordination (
-                coordination_key VARCHAR,
-                epoch BIGINT
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.claim_coordination AS
+                SELECT
+                    CAST('task_repository' AS VARCHAR) AS coordination_key,
+                    CAST(0 AS BIGINT) AS epoch
+                """
             )
-            """
-        )
-        self._bootstrap_coordination_row()
+            rows = self._connection.execute(
+                """
+                SELECT coordination_key, epoch
+                FROM moldock.claim_coordination
+                WHERE coordination_key = 'task_repository'
+                """
+            ).fetchall()
+            if len(rows) != 1:
+                raise RuntimeError(
+                    "DuckLake claim coordination row must be unique"
+                )
+
+        self._run_write(operation)
 
     def register(self, task: DockingTask) -> None:
         def operation() -> None:
@@ -320,29 +333,6 @@ class DuckLakeTaskRepository:
     def close(self) -> None:
         self._connection.close()
 
-    def _bootstrap_coordination_row(self) -> None:
-        def operation() -> None:
-            rows = self._connection.execute(
-                """
-                SELECT coordination_key, epoch
-                FROM moldock.claim_coordination
-                WHERE coordination_key = 'task_repository'
-                """
-            ).fetchall()
-            if len(rows) > 1:
-                raise RuntimeError(
-                    "DuckLake claim coordination row is duplicated"
-                )
-            if not rows:
-                self._connection.execute(
-                    """
-                    INSERT INTO moldock.claim_coordination
-                    VALUES ('task_repository', 0)
-                    """
-                )
-
-        self._run_write(operation)
-
     def _run_write(self, operation):
         last_error: Exception | None = None
         for attempt_number in range(self._max_transaction_retries):
@@ -522,6 +512,8 @@ class DuckLakeTaskRepository:
 
     @staticmethod
     def _validate_timestamp(value: datetime) -> None:
+        if not isinstance(value, datetime):
+            raise DomainValidationError("timestamp must be a datetime")
         if value.tzinfo is None or value.utcoffset() is None:
             raise DomainValidationError(
                 "timestamps must be timezone-aware"
