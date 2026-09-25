@@ -217,6 +217,7 @@ def test_attempt_rejects_completion_before_start_on_direct_construction():
             "started_at": T0,
             "finished_at": T0 + timedelta(seconds=1),
             "error": "boom",
+            "failure_kind": FailureKind.BACKEND,
             "lease_expires_at": T0 + LEASE,
         },
     ],
@@ -300,3 +301,11 @@ def test_attempt_cannot_fail_before_it_started():
 
     with pytest.raises(DomainValidationError):
         running.fail(T0 - timedelta(seconds=1), "clock skew", FailureKind.BACKEND)
+
+
+
+def test_fail_rejects_non_failure_kind_value():
+    running = make_attempt().start(T0, lease_duration=LEASE)
+
+    with pytest.raises(DomainValidationError, match="failure_kind"):
+        running.fail(T0 + timedelta(seconds=1), "boom", "BACKEND")
