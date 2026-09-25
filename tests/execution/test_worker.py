@@ -1,8 +1,14 @@
 from datetime import datetime, timezone
 
 from moldock.backends import FakeDockingBackend
-from moldock.domain import DockingOutputArtifact, DockingResult, DockingTask, TaskStatus
-from moldock.execution import Worker
+from moldock.domain import (
+    DockingBox,
+    DockingOutputArtifact,
+    DockingResult,
+    DockingTask,
+    TaskStatus,
+)
+from moldock.execution import MemoryDockingInputResolver, Worker
 from moldock.repositories import InMemoryArtifactRepository, InMemoryTaskRepository
 from moldock.storage import MemoryArtifactStore
 
@@ -15,34 +21,46 @@ def make_task(
     ligand_id: str = "lig_1",
     prepared_ligand_id: str = "prepared_lig_1",
 ) -> DockingTask:
+    box = DockingBox(1, 2, 3, 20, 20, 20)
     return DockingTask(
         experiment_id="exp_1",
         receptor_id="rec_1",
         ligand_id=ligand_id,
         prepared_receptor_id="prepared_rec_1",
         prepared_ligand_id=prepared_ligand_id,
-        search_space_id="space_1",
+        search_space_id=box.search_space_id,
     )
 
 
-def make_worker(backend=None):
+def make_resolver(task: DockingTask) -> MemoryDockingInputResolver:
+    box = DockingBox(1, 2, 3, 20, 20, 20)
+    resolver = MemoryDockingInputResolver()
+    resolver.register_receptor(task.prepared_receptor_id, b"REC")
+    resolver.register_ligand(task.prepared_ligand_id, b"LIG")
+    resolver.register_search_space(box)
+    resolver.register_parameters(task.experiment_id, {"exhaustiveness": 8})
+    return resolver
+
+
+def make_worker(backend=None, task=None):
     tasks = InMemoryTaskRepository()
     artifacts = InMemoryArtifactRepository()
     store = MemoryArtifactStore()
     backend = backend or FakeDockingBackend()
+    task = task or make_task()
     worker = Worker(
         task_repository=tasks,
         artifact_repository=artifacts,
         artifact_store=store,
+        input_resolver=make_resolver(task),
         backend=backend,
         clock=lambda: T0,
     )
-    return worker, tasks, artifacts, store, backend
+    return worker, tasks, artifacts, store, backend, task
 
 
-def test_run_once_claims_executes_persists_and_succeeds():
-    worker, tasks, artifacts, store, backend = make_worker()
-    task = make_task()
+def test_run_once_claims_resolves_executes_persists_and_succeeds():
+    worker, tasks, artifacts, store, backend, task = make_worker()
     tasks.register(task)
 
     attempt = worker.run_once("exp_1", "run_1", "worker_1")
@@ -61,7 +79,7 @@ def test_run_once_claims_executes_persists_and_succeeds():
 
 
 def test_run_once_returns_none_when_no_task_is_available():
-    worker, _, _, _, backend = make_worker()
+    worker, _, _, _, backend, _ = make_worker()
 
     assert worker.run_once("exp_1", "run_1", "worker_1") is None
     assert backend.calls == ()
@@ -70,7 +88,7 @@ def test_run_once_returns_none_when_no_task_is_available():
 def test_backend_failure_marks_attempt_failed_without_artifacts():
     task = make_task()
     backend = FakeDockingBackend(fail_task_ids={task.task_id})
-    worker, tasks, artifacts, _, _ = make_worker(backend)
+    worker, tasks, artifacts, _, _, _ = make_worker(backend, task)
     tasks.register(task)
 
     attempt = worker.run_once("exp_1", "run_1", "worker_1")
@@ -84,7 +102,7 @@ def test_backend_failure_marks_attempt_failed_without_artifacts():
 def test_failed_execution_is_retryable():
     task = make_task()
     failing = FakeDockingBackend(fail_task_ids={task.task_id})
-    worker, tasks, artifacts, store, _ = make_worker(failing)
+    worker, tasks, artifacts, store, _, _ = make_worker(failing, task)
     tasks.register(task)
 
     first = worker.run_once("exp_1", "run_1", "worker_1")
@@ -95,6 +113,7 @@ def test_failed_execution_is_retryable():
         task_repository=tasks,
         artifact_repository=artifacts,
         artifact_store=store,
+        input_resolver=make_resolver(task),
         backend=FakeDockingBackend(),
         clock=lambda: T0,
     )
@@ -106,7 +125,7 @@ def test_failed_execution_is_retryable():
 
 
 class DuplicateContentBackend:
-    def execute(self, task):
+    def execute(self, request):
         return DockingResult(
             artifacts=(
                 DockingOutputArtifact(
@@ -124,8 +143,11 @@ class DuplicateContentBackend:
 
 
 def test_same_blob_can_have_multiple_artifact_provenance_records():
-    worker, tasks, artifacts, store, _ = make_worker(DuplicateContentBackend())
     task = make_task()
+    worker, tasks, artifacts, store, _, _ = make_worker(
+        DuplicateContentBackend(),
+        task,
+    )
     tasks.register(task)
 
     attempt = worker.run_once("exp_1", "run_1", "worker_1")
@@ -148,14 +170,15 @@ class FailingArtifactStore:
 
 
 def test_artifact_persistence_failure_marks_attempt_failed():
+    task = make_task()
     tasks = InMemoryTaskRepository()
     artifacts = InMemoryArtifactRepository()
-    task = make_task()
     tasks.register(task)
     worker = Worker(
         task_repository=tasks,
         artifact_repository=artifacts,
         artifact_store=FailingArtifactStore(),
+        input_resolver=make_resolver(task),
         backend=FakeDockingBackend(),
         clock=lambda: T0,
     )
@@ -166,3 +189,24 @@ def test_artifact_persistence_failure_marks_attempt_failed():
     assert attempt.status is TaskStatus.FAILED
     assert "object store unavailable" in attempt.error
     assert artifacts.list_for_attempt(attempt.attempt_id) == ()
+
+
+def test_input_resolution_failure_marks_attempt_failed():
+    task = make_task()
+    tasks = InMemoryTaskRepository()
+    artifacts = InMemoryArtifactRepository()
+    tasks.register(task)
+    worker = Worker(
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=MemoryArtifactStore(),
+        input_resolver=MemoryDockingInputResolver(),
+        backend=FakeDockingBackend(),
+        clock=lambda: T0,
+    )
+
+    attempt = worker.run_once("exp_1", "run_1", "worker_1")
+
+    assert attempt is not None
+    assert attempt.status is TaskStatus.FAILED
+    assert "prepared receptor" in attempt.error
