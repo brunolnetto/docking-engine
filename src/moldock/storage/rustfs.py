@@ -10,6 +10,8 @@ from moldock.domain import DomainValidationError, StoredBlob
 _BLOB_ID_RE = re.compile(r"^blob_([0-9a-f]{64})$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _NOT_FOUND_CODES = {"404", "NoSuchKey", "NotFound"}
+
+
 class RustFSArtifactStore:
     """Content-addressed artifact storage backed by RustFS's S3-compatible API."""
 
@@ -149,17 +151,15 @@ class RustFSArtifactStore:
         expected_digest: str,
         expected_size: int,
     ) -> bool:
-        try:
-            self._read_verified(
-                key=key,
-                expected_digest=expected_digest,
-                expected_size=expected_size,
-                unknown_message="missing",
-            )
-        except DomainValidationError as exc:
-            if str(exc) == "missing":
-                return False
-            raise
+        response = self._get_object_or_none(key)
+        if response is None:
+            return False
+        self._verify_response(
+            key=key,
+            response=response,
+            expected_digest=expected_digest,
+            expected_size=expected_size,
+        )
         return True
 
     def _read_verified(
@@ -170,24 +170,43 @@ class RustFSArtifactStore:
         expected_size: int | None,
         unknown_message: str,
     ) -> bytes:
+        response = self._get_object_or_none(key)
+        if response is None:
+            raise DomainValidationError(unknown_message)
+        return self._verify_response(
+            key=key,
+            response=response,
+            expected_digest=expected_digest,
+            expected_size=expected_size,
+        )
+
+    def _get_object_or_none(self, key: str):
         try:
-            response = self._client.get_object(
+            return self._client.get_object(
                 Bucket=self._bucket,
                 Key=key,
             )
         except Exception as exc:
             if self._is_error_code(exc, _NOT_FOUND_CODES):
-                raise DomainValidationError(unknown_message) from exc
+                return None
             raise
 
+    def _verify_response(
+        self,
+        *,
+        key: str,
+        response,
+        expected_digest: str,
+        expected_size: int | None,
+    ) -> bytes:
         body = response["Body"].read()
         if not isinstance(body, bytes):
             body = bytes(body)
 
         actual_digest = hashlib.sha256(body).hexdigest()
         metadata = {
-            str(key).lower(): str(value)
-            for key, value in (response.get("Metadata") or {}).items()
+            str(name).lower(): str(value)
+            for name, value in (response.get("Metadata") or {}).items()
         }
         content_length = response.get("ContentLength", len(body))
         metadata_digest = metadata.get("sha256")
