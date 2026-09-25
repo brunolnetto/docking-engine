@@ -1,9 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
+import time
 
 import pytest
 
 from moldock.domain import DockingTask, DomainValidationError, TaskStatus
 from moldock.repositories import InMemoryTaskRepository
+import moldock.repositories.memory as memory_module
 
 
 UTC = timezone.utc
@@ -82,6 +86,34 @@ def test_running_task_cannot_be_claimed_twice_in_same_run():
 
     assert first is not None
     assert second is None
+
+
+def test_claim_next_is_atomic_across_threads(monkeypatch):
+    repo = InMemoryTaskRepository()
+    task = make_task()
+    repo.register(task)
+
+    start = Barrier(2)
+    real_content_id = memory_module.content_id
+
+    def slow_content_id(prefix, value):
+        if prefix == "attempt":
+            time.sleep(0.05)
+        return real_content_id(prefix, value)
+
+    monkeypatch.setattr(memory_module, "content_id", slow_content_id)
+
+    def claim(worker_id):
+        start.wait()
+        return repo.claim_next("exp_1", "run_1", worker_id, T0)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(claim, ("worker_1", "worker_2")))
+
+    claimed = [result for result in results if result is not None]
+
+    assert len(claimed) == 1
+    assert len(repo.attempts_for(task.task_id, "run_1")) == 1
 
 
 def test_failed_task_can_be_retried_with_incremented_attempt_number():

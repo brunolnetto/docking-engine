@@ -36,9 +36,16 @@ def test_artifact_rejects_invalid_sha256():
         make_artifact(sha256="not-a-sha")
 
 
-def test_artifact_rejects_negative_size():
+@pytest.mark.parametrize("size_bytes", [-1, 1.5, True, "128", None])
+def test_artifact_rejects_non_integer_or_negative_size(size_bytes):
     with pytest.raises(DomainValidationError):
-        make_artifact(size_bytes=-1)
+        make_artifact(size_bytes=size_bytes)
+
+
+def test_artifact_accepts_zero_size():
+    artifact = make_artifact(size_bytes=0)
+
+    assert artifact.size_bytes == 0
 
 
 def test_register_is_idempotent_for_identical_metadata():
