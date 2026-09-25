@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from moldock.domain import DockingTask, DomainValidationError, TaskStatus
+from moldock.domain import DockingTask, DomainValidationError, FailureKind, TaskStatus
 from moldock.repositories import InMemoryTaskRepository
 import moldock.repositories.memory as memory_module
 
@@ -126,6 +126,7 @@ def test_failed_task_can_be_retried_with_incremented_attempt_number():
         first.attempt_id,
         T0 + timedelta(seconds=1),
         "backend exited 1",
+        FailureKind.BACKEND,
     )
 
     retry = repo.claim_next(
@@ -203,7 +204,7 @@ def test_only_running_attempt_can_be_completed():
     repo.register(make_task())
     attempt = repo.claim_next("exp_1", "run_1", "worker_1", T0)
     assert attempt is not None
-    repo.fail(attempt.attempt_id, T0 + timedelta(seconds=1), "boom")
+    repo.fail(attempt.attempt_id, T0 + timedelta(seconds=1), "boom", FailureKind.BACKEND)
 
     with pytest.raises(DomainValidationError):
         repo.succeed(attempt.attempt_id, T0 + timedelta(seconds=2))
@@ -216,7 +217,7 @@ def test_attempt_history_is_preserved():
 
     first = repo.claim_next("exp_1", "run_1", "worker_1", T0)
     assert first is not None
-    repo.fail(first.attempt_id, T0 + timedelta(seconds=1), "boom")
+    repo.fail(first.attempt_id, T0 + timedelta(seconds=1), "boom", FailureKind.BACKEND)
     second = repo.claim_next(
         "exp_1",
         "run_1",

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from moldock.domain import DockingTask, DomainValidationError, RetryPolicy, TaskStatus
+from moldock.domain import DockingTask, DomainValidationError, FailureKind, RetryPolicy, TaskStatus
 from moldock.repositories import InMemoryTaskRepository
 
 
@@ -235,14 +235,14 @@ def test_retry_policy_stops_after_max_attempts():
         lease_duration=timedelta(minutes=1),
     )
     assert first is not None
-    repo.fail(first.attempt_id, T0 + timedelta(seconds=10), "boom")
+    repo.fail(first.attempt_id, T0 + timedelta(seconds=10), "boom", FailureKind.BACKEND)
 
     second = repo.claim_next(
         "exp_1", "run_1", "worker_2", T0 + timedelta(seconds=20),
         lease_duration=timedelta(minutes=1),
     )
     assert second is not None
-    repo.fail(second.attempt_id, T0 + timedelta(seconds=30), "boom again")
+    repo.fail(second.attempt_id, T0 + timedelta(seconds=30), "boom again", FailureKind.BACKEND)
 
     assert repo.claim_next(
         "exp_1", "run_1", "worker_3", T0 + timedelta(seconds=40),

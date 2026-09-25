@@ -8,7 +8,7 @@ import duckdb
 
 import pytest
 
-from moldock.domain import DockingTask, DomainValidationError, TaskStatus
+from moldock.domain import DockingTask, DomainValidationError, FailureKind, TaskStatus
 from moldock.repositories import DuckLakeTaskRepository, TaskRepository
 
 
@@ -219,7 +219,7 @@ def test_ducklake_repository_rejects_naive_timestamps(tmp_path, method):
     elif method == "succeed":
         action = lambda: repo.succeed(attempt.attempt_id, naive)
     else:
-        action = lambda: repo.fail(attempt.attempt_id, naive, "boom")
+        action = lambda: repo.fail(attempt.attempt_id, naive, "boom", FailureKind.BACKEND)
 
     with pytest.raises(DomainValidationError, match="timezone-aware"):
         action()
