@@ -1,9 +1,15 @@
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
+from datetime import timedelta
 
 import pytest
 
-from moldock.backends import DockingBackend, DockingBackendError, VinaBackend
+from moldock.backends import (
+    DockingBackend,
+    DockingBackendError,
+    DockingBackendTimeoutError,
+    VinaBackend,
+)
 from moldock.domain import DockingBox, DockingExecutionRequest, DockingTask
 
 
@@ -33,8 +39,8 @@ class RecordingRunner:
         self.stdout = stdout
         self.stderr = stderr
 
-    def __call__(self, command, *, cwd):
-        self.calls.append((tuple(command), Path(cwd)))
+    def __call__(self, command, *, cwd, timeout=None):
+        self.calls.append((tuple(command), Path(cwd), timeout))
         out_path = Path(command[command.index("--out") + 1])
         out_path.write_bytes(b"MODEL 1\nREMARK VINA RESULT: -8.1 0.0 0.0\nENDMDL\n")
         return CompletedProcess(command, self.returncode, self.stdout, self.stderr)
@@ -51,8 +57,9 @@ def test_vina_backend_builds_cli_and_returns_raw_pose():
     result = backend.execute(make_request())
 
     assert len(runner.calls) == 1
-    command, cwd = runner.calls[0]
+    command, cwd, timeout = runner.calls[0]
     assert command[0] == "vina-custom"
+    assert timeout is None
     assert command[command.index("--center_x") + 1] == "1.5"
     assert command[command.index("--center_y") + 1] == "-2.0"
     assert command[command.index("--center_z") + 1] == "3.25"
@@ -92,7 +99,7 @@ def test_vina_backend_maps_optional_supported_parameters():
         )
     )
 
-    command, _ = runner.calls[0]
+    command, _, _ = runner.calls[0]
     for flag, value in {
         "--exhaustiveness": "16",
         "--num_modes": "7",
@@ -121,7 +128,7 @@ def test_vina_backend_failure_includes_process_diagnostics():
 
 def test_vina_backend_wraps_launch_errors():
     class MissingExecutableRunner:
-        def __call__(self, command, *, cwd):
+        def __call__(self, command, *, cwd, timeout=None):
             raise FileNotFoundError("vina executable not found")
 
     backend = VinaBackend(runner=MissingExecutableRunner())
@@ -134,7 +141,7 @@ def test_vina_backend_wraps_launch_errors():
 
 def test_vina_backend_requires_output_file():
     class NoOutputRunner:
-        def __call__(self, command, *, cwd):
+        def __call__(self, command, *, cwd, timeout=None):
             return CompletedProcess(command, 0, "ok", "")
 
     backend = VinaBackend(runner=NoOutputRunner())
@@ -148,8 +155,8 @@ def test_default_vina_runner_delegates_to_subprocess(monkeypatch):
 
     calls = []
 
-    def fake_run(command, *, cwd, capture_output, text, check):
-        calls.append((command, cwd, capture_output, text, check))
+    def fake_run(command, *, cwd, capture_output, text, check, timeout):
+        calls.append((command, cwd, capture_output, text, check, timeout))
         return CompletedProcess(command, 0, "ok", "")
 
     monkeypatch.setattr(vina_module.subprocess, "run", fake_run)
@@ -161,5 +168,57 @@ def test_default_vina_runner_delegates_to_subprocess(monkeypatch):
 
     assert result.returncode == 0
     assert calls == [
-        (["vina", "--version"], Path("/tmp"), True, True, False)
+        (["vina", "--version"], Path("/tmp"), True, True, False, None)
     ]
+
+
+def test_vina_backend_passes_configured_timeout_to_runner():
+    runner = RecordingRunner()
+    backend = VinaBackend(
+        runner=runner,
+        execution_timeout=timedelta(seconds=90),
+    )
+
+    backend.execute(make_request())
+
+    _, _, timeout = runner.calls[0]
+    assert timeout == 90.0
+
+
+def test_vina_backend_rejects_non_positive_timeout():
+    with pytest.raises(ValueError, match="execution_timeout"):
+        VinaBackend(execution_timeout=timedelta(0))
+
+
+def test_vina_backend_maps_subprocess_timeout_to_typed_backend_timeout():
+    class TimingOutRunner:
+        def __call__(self, command, *, cwd, timeout=None):
+            raise TimeoutExpired(command, timeout)
+
+    backend = VinaBackend(
+        runner=TimingOutRunner(),
+        execution_timeout=timedelta(seconds=30),
+    )
+
+    with pytest.raises(DockingBackendTimeoutError, match="timed out") as error:
+        backend.execute(make_request())
+
+    assert isinstance(error.value.__cause__, TimeoutExpired)
+
+
+def test_vina_backend_keeps_legacy_injected_runner_signature_without_timeout():
+    calls = []
+
+    class LegacyRunner:
+        def __call__(self, command, *, cwd):
+            calls.append((command, cwd))
+            out_path = Path(command[command.index("--out") + 1])
+            out_path.write_bytes(
+                b"MODEL 1\nREMARK VINA RESULT: -8.1 0.0 0.0\nENDMDL\n"
+            )
+            return CompletedProcess(command, 0, "ok", "")
+
+    backend = VinaBackend(runner=LegacyRunner())
+    backend.execute(make_request())
+
+    assert len(calls) == 1

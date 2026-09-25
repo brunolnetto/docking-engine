@@ -67,3 +67,22 @@ Install the optional dependency with:
 ```bash
 python -m pip install -e ".[ducklake]"
 ```
+
+
+## Backend execution timeouts
+
+`VinaBackend` may be configured with an execution deadline:
+
+```python
+from datetime import timedelta
+
+from moldock.backends import VinaBackend
+    execution_timeout=timedelta(minutes=30),
+)
+```
+
+The deadline is enforced at the subprocess boundary through `subprocess.run(..., timeout=...)`. A Vina timeout becomes `DockingBackendTimeoutError`, which `TaskExecutor` classifies as `FailureKind.TIMEOUT`.
+
+`TIMEOUT` is retryable by the default `RetryPolicy`.
+
+This deliberately does not attempt to terminate arbitrary Python worker threads. Timeouts are owned by execution boundaries that can be cancelled safely, such as the Vina subprocess adapter.

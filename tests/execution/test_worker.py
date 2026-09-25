@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from moldock.backends import FakeDockingBackend
+from moldock.backends import DockingBackendTimeoutError, FakeDockingBackend
 from moldock.domain import (
     DockingBox,
     DockingOutputArtifact,
@@ -241,3 +241,37 @@ def test_claimed_task_missing_from_repository_marks_attempt_failed():
     assert attempt.status is TaskStatus.FAILED
     assert attempt.failure_kind is FailureKind.INFRASTRUCTURE
     assert "claimed task not found" in attempt.error
+
+
+class TimeoutBackend:
+    def execute(self, request):
+        raise DockingBackendTimeoutError("vina timed out after 30 seconds")
+
+
+def test_timeout_failure_is_persisted_and_retryable():
+    task = make_task()
+    worker, tasks, artifacts, store, _, _ = make_worker(
+        TimeoutBackend(),
+        task,
+    )
+    tasks.register(task)
+
+    first = worker.run_once("exp_1", "run_1", "worker_1")
+
+    assert first is not None
+    assert first.status is TaskStatus.FAILED
+    assert first.failure_kind is FailureKind.TIMEOUT
+
+    retrying_worker = Worker(
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=store,
+        input_resolver=make_resolver(task),
+        backend=FakeDockingBackend(),
+        clock=lambda: T0,
+    )
+    second = retrying_worker.run_once("exp_1", "run_1", "worker_2")
+
+    assert second is not None
+    assert second.status is TaskStatus.SUCCEEDED
+    assert second.attempt_number == 2

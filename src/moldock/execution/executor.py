@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from moldock.backends import DockingBackend
+from moldock.backends import DockingBackend, DockingBackendTimeoutError
 from moldock.domain import (
     ArtifactMetadata,
     ExecutionFailure,
@@ -64,6 +64,8 @@ class TaskExecutor:
 
         try:
             result = self._backend.execute(request)
+        except DockingBackendTimeoutError as exc:
+            raise _wrap_failure(FailureKind.TIMEOUT, exc) from exc
         except Exception as exc:
             raise _wrap_failure(FailureKind.BACKEND, exc) from exc
 

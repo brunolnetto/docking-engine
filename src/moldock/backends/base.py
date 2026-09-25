@@ -9,6 +9,10 @@ class DockingBackendError(RuntimeError):
     pass
 
 
+class DockingBackendTimeoutError(DockingBackendError):
+    pass
+
+
 @runtime_checkable
 class DockingBackend(Protocol):
     def execute(self, request: DockingExecutionRequest) -> DockingResult: ...
