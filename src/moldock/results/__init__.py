@@ -1,3 +1,4 @@
+from .ducklake_repository import DuckLakeScientificResultRepository
 from .interpreter import (
     NullScientificResultInterpreter,
     ScientificResultInterpreter,
@@ -22,4 +23,5 @@ __all__ = [
     "VinaResultParser",
     "ScientificResultRepository",
     "InMemoryScientificResultRepository",
+    "DuckLakeScientificResultRepository",
 ]
