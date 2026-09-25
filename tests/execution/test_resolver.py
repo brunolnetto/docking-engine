@@ -37,6 +37,31 @@ def test_resolver_builds_execution_request():
     assert request.parameters["exhaustiveness"] == 12
 
 
+def test_identical_prepared_input_reregistration_is_idempotent():
+    resolver = MemoryDockingInputResolver()
+
+    resolver.register_receptor("prepared_rec_1", b"REC")
+    resolver.register_receptor("prepared_rec_1", b"REC")
+    resolver.register_ligand("prepared_lig_1", b"LIG")
+    resolver.register_ligand("prepared_lig_1", b"LIG")
+
+
+def test_conflicting_prepared_receptor_registration_is_rejected():
+    resolver = MemoryDockingInputResolver()
+    resolver.register_receptor("prepared_rec_1", b"REC-v1")
+
+    with pytest.raises(DomainValidationError, match="prepared receptor ID"):
+        resolver.register_receptor("prepared_rec_1", b"REC-v2")
+
+
+def test_conflicting_prepared_ligand_registration_is_rejected():
+    resolver = MemoryDockingInputResolver()
+    resolver.register_ligand("prepared_lig_1", b"LIG-v1")
+
+    with pytest.raises(DomainValidationError, match="prepared ligand ID"):
+        resolver.register_ligand("prepared_lig_1", b"LIG-v2")
+
+
 def test_resolver_rejects_missing_inputs():
     resolver = MemoryDockingInputResolver()
 
