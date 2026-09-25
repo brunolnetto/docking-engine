@@ -3,7 +3,7 @@ from threading import Event, Thread
 
 import pytest
 
-from moldock.domain import DockingTask, DomainValidationError, TaskStatus
+from moldock.domain import DockingTask, DomainValidationError, FailureKind, TaskStatus
 from moldock.execution import LeasedWorkerRunner
 from moldock.repositories import InMemoryTaskRepository
 
@@ -111,6 +111,7 @@ def test_heartbeat_failure_prevents_success():
 
     assert attempt is not None
     assert attempt.status is TaskStatus.FAILED
+    assert attempt.failure_kind is FailureKind.LEASE
     assert "heartbeat lost" in attempt.error
 
 
@@ -254,6 +255,7 @@ def test_finalization_lease_expiry_returns_durable_failed_attempt():
 
     assert result is not None
     assert result.status is TaskStatus.FAILED
+    assert result.failure_kind is FailureKind.LEASE
     assert result.error == "lease expired"
 
 
@@ -322,6 +324,7 @@ def test_heartbeat_start_failure_finalizes_claimed_attempt_and_stops_controller(
 
     assert result is not None
     assert result.status is TaskStatus.FAILED
+    assert result.failure_kind is FailureKind.LEASE
     assert "cannot start heartbeat thread" in result.error
     assert heartbeat.started
     assert heartbeat.stopped
@@ -354,6 +357,7 @@ def test_heartbeat_factory_failure_finalizes_claimed_attempt():
 
     assert result is not None
     assert result.status is TaskStatus.FAILED
+    assert result.failure_kind is FailureKind.LEASE
     assert "heartbeat resource unavailable" in result.error
     assert executor.calls == []
     assert repo.attempts_for(task.task_id, "run_1") == (result,)

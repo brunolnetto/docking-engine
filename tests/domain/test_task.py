@@ -6,6 +6,7 @@ from moldock.domain import (
     DockingTask,
     DomainValidationError,
     ExperimentRun,
+    FailureKind,
     TaskAttempt,
     TaskStatus,
 )
@@ -127,7 +128,7 @@ def test_attempt_can_fail_with_error():
     failed = (
         make_attempt()
         .start(T0, lease_duration=LEASE)
-        .fail(T0 + timedelta(seconds=2), "vina process exited with code 1")
+        .fail(T0 + timedelta(seconds=2), "vina process exited with code 1", FailureKind.BACKEND)
     )
 
     assert failed.status is TaskStatus.FAILED
@@ -252,6 +253,7 @@ def test_attempt_constructor_accepts_valid_failed_state():
         started_at=T0,
         finished_at=T0 + timedelta(seconds=1),
         error="worker lost",
+        failure_kind=FailureKind.INFRASTRUCTURE,
     )
 
     assert attempt.status is TaskStatus.FAILED
@@ -283,18 +285,18 @@ def test_attempt_cannot_succeed_before_it_started():
 
 def test_only_running_attempt_can_fail():
     with pytest.raises(DomainValidationError):
-        make_attempt().fail(T0, "failure")
+        make_attempt().fail(T0, "failure", FailureKind.BACKEND)
 
 
 def test_failed_attempt_requires_non_blank_error():
     running = make_attempt().start(T0, lease_duration=LEASE)
 
     with pytest.raises(DomainValidationError):
-        running.fail(T0 + timedelta(seconds=1), " ")
+        running.fail(T0 + timedelta(seconds=1), " ", FailureKind.BACKEND)
 
 
 def test_attempt_cannot_fail_before_it_started():
     running = make_attempt().start(T0, lease_duration=LEASE)
 
     with pytest.raises(DomainValidationError):
-        running.fail(T0 - timedelta(seconds=1), "clock skew")
+        running.fail(T0 - timedelta(seconds=1), "clock skew", FailureKind.BACKEND)

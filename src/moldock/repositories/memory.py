@@ -8,6 +8,7 @@ from moldock.domain import (
     ArtifactMetadata,
     DockingTask,
     DomainValidationError,
+    FailureKind,
     RetryPolicy,
     TaskAttempt,
     TaskStatus,
@@ -88,7 +89,7 @@ class InMemoryTaskRepository:
                     latest = history[-1]
                     if not latest.lease_expired(at):
                         continue
-                    expired = latest.fail(at, "lease expired")
+                    expired = latest.fail(at, "lease expired", FailureKind.LEASE)
                     self._attempts[latest.attempt_id] = expired
                     history = self.attempts_for(task.task_id, run_id)
 
@@ -96,7 +97,15 @@ class InMemoryTaskRepository:
                     continue
 
                 attempt_number = len(history) + 1
-                if not self._retry_policy.can_attempt(attempt_number):
+                previous_failure_kind = (
+                    history[-1].failure_kind
+                    if history and history[-1].status is TaskStatus.FAILED
+                    else None
+                )
+                if not self._retry_policy.can_attempt(
+                    attempt_number,
+                    previous_failure_kind,
+                ):
                     continue
 
                 attempt = TaskAttempt(
@@ -148,7 +157,7 @@ class InMemoryTaskRepository:
                     "worker does not own this attempt"
                 )
             if attempt.lease_expired(at):
-                expired = attempt.fail(at, "lease expired")
+                expired = attempt.fail(at, "lease expired", FailureKind.LEASE)
                 self._attempts[attempt_id] = expired
                 raise DomainValidationError("attempt lease has expired")
 
@@ -163,17 +172,23 @@ class InMemoryTaskRepository:
         with self._lock:
             attempt = self._require_attempt(attempt_id)
             if attempt.lease_expired(at):
-                expired = attempt.fail(at, "lease expired")
+                expired = attempt.fail(at, "lease expired", FailureKind.LEASE)
                 self._attempts[attempt_id] = expired
                 raise DomainValidationError("attempt lease has expired")
             updated = attempt.succeed(at)
             self._attempts[attempt_id] = updated
             return updated
 
-    def fail(self, attempt_id: str, at: datetime, error: str) -> TaskAttempt:
+    def fail(
+        self,
+        attempt_id: str,
+        at: datetime,
+        error: str,
+        failure_kind: FailureKind,
+    ) -> TaskAttempt:
         with self._lock:
             attempt = self._require_attempt(attempt_id)
-            updated = attempt.fail(at, error)
+            updated = attempt.fail(at, error, failure_kind)
             self._attempts[attempt_id] = updated
             return updated
 

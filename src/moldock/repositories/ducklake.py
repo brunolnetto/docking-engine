@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Lock, RLock
 from time import sleep
 import os
 
@@ -14,6 +15,7 @@ except ImportError:  # pragma: no cover - exercised only without optional depend
 from moldock.domain import (
     DockingTask,
     DomainValidationError,
+    FailureKind,
     RetryPolicy,
     TaskAttempt,
     TaskStatus,
@@ -22,6 +24,20 @@ from moldock.domain import (
 
 
 BeforeClaimWrite = Callable[[], None]
+
+
+_CATALOG_LOCKS_GUARD = Lock()
+_CATALOG_WRITE_LOCKS: dict[Path, RLock] = {}
+
+
+def _catalog_write_lock(catalog_path: Path) -> RLock:
+    key = catalog_path.resolve()
+    with _CATALOG_LOCKS_GUARD:
+        lock = _CATALOG_WRITE_LOCKS.get(key)
+        if lock is None:
+            lock = RLock()
+            _CATALOG_WRITE_LOCKS[key] = lock
+        return lock
 
 
 class DuckLakeTaskRepository:
@@ -56,6 +72,7 @@ class DuckLakeTaskRepository:
 
         self._catalog_path = Path(catalog_path)
         self._data_path = Path(data_path)
+        self._write_lock = _catalog_write_lock(self._catalog_path)
         self._catalog_path.parent.mkdir(parents=True, exist_ok=True)
         self._data_path.mkdir(parents=True, exist_ok=True)
         self._retry_policy = retry_policy or RetryPolicy()
@@ -133,8 +150,25 @@ class DuckLakeTaskRepository:
                     heartbeat_at TIMESTAMPTZ,
                     lease_expires_at TIMESTAMPTZ,
                     status VARCHAR,
-                    error VARCHAR
+                    error VARCHAR,
+                    failure_kind VARCHAR
                 )
+                """
+            )
+            self._connection.execute(
+                """
+                ALTER TABLE moldock.attempts
+                ADD COLUMN IF NOT EXISTS failure_kind VARCHAR
+                """
+            )
+            self._connection.execute(
+                """
+                UPDATE moldock.attempts
+                SET failure_kind = CASE
+                    WHEN error = 'lease expired' THEN 'LEASE'
+                    ELSE 'INFRASTRUCTURE'
+                END
+                WHERE status = 'FAILED' AND failure_kind IS NULL
                 """
             )
             self._connection.execute(
@@ -241,7 +275,7 @@ class DuckLakeTaskRepository:
                     if not latest.lease_expired(at):
                         continue
                     self._replace_attempt(
-                        latest.fail(at, "lease expired")
+                        latest.fail(at, "lease expired", FailureKind.LEASE)
                     )
                     history = self._attempts_for_current_transaction(
                         task.task_id,
@@ -252,11 +286,16 @@ class DuckLakeTaskRepository:
                     continue
 
                 attempt_number = len(history) + 1
-                if not self._retry_policy.can_attempt(attempt_number):
+                previous_failure_kind = (
+                    history[-1].failure_kind
+                    if history and history[-1].status is TaskStatus.FAILED
+                    else None
+                )
+                if not self._retry_policy.can_attempt(
+                    attempt_number,
+                    previous_failure_kind,
+                ):
                     continue
-
-                if self._before_claim_write is not None:
-                    self._before_claim_write()
 
                 self._touch_coordination()
                 attempt = TaskAttempt(
@@ -281,6 +320,8 @@ class DuckLakeTaskRepository:
                 return attempt
             return None
 
+        if self._before_claim_write is not None:
+            self._before_claim_write()
         return self._run_write(operation)
 
     def heartbeat(
@@ -300,7 +341,7 @@ class DuckLakeTaskRepository:
             if attempt.worker_id != worker_id:
                 raise DomainValidationError("worker does not own this attempt")
             if attempt.lease_expired(at):
-                expired = attempt.fail(at, "lease expired")
+                expired = attempt.fail(at, "lease expired", FailureKind.LEASE)
                 self._replace_attempt(expired)
                 raise _CommitThenRaise(
                     DomainValidationError("attempt lease has expired")
@@ -321,7 +362,7 @@ class DuckLakeTaskRepository:
             self._touch_coordination()
             attempt = self._require_attempt(attempt_id)
             if attempt.lease_expired(at):
-                expired = attempt.fail(at, "lease expired")
+                expired = attempt.fail(at, "lease expired", FailureKind.LEASE)
                 self._replace_attempt(expired)
                 raise _CommitThenRaise(
                     DomainValidationError("attempt lease has expired")
@@ -332,13 +373,19 @@ class DuckLakeTaskRepository:
 
         return self._run_write(operation)
 
-    def fail(self, attempt_id: str, at: datetime, error: str) -> TaskAttempt:
+    def fail(
+        self,
+        attempt_id: str,
+        at: datetime,
+        error: str,
+        failure_kind: FailureKind,
+    ) -> TaskAttempt:
         self._validate_timestamp(at)
 
         def operation() -> TaskAttempt:
             self._touch_coordination()
             attempt = self._require_attempt(attempt_id)
-            updated = attempt.fail(at, error)
+            updated = attempt.fail(at, error, failure_kind)
             self._replace_attempt(updated)
             return updated
 
@@ -356,36 +403,60 @@ class DuckLakeTaskRepository:
             self._connection.close()
 
     def _run_write(self, operation):
-        last_error: Exception | None = None
-        for attempt_number in range(self._max_transaction_retries):
-            self._connection.execute("BEGIN TRANSACTION")
-            deferred_error: Exception | None = None
-            try:
+        # SQLite-backed DuckLake catalogs are single-writer. Serialize writes
+        # for repository instances sharing this catalog within the current
+        # process, while keeping database-level retry/reconnect handling for
+        # conflicts with other processes.
+        with self._write_lock:
+            last_error: Exception | None = None
+            for attempt_number in range(self._max_transaction_retries):
+                deferred_error: Exception | None = None
+                transaction_started = False
                 try:
-                    result = operation()
-                except _CommitThenRaise as deferred:
-                    result = None
-                    deferred_error = deferred.error
+                    self._connection.execute("BEGIN TRANSACTION")
+                    transaction_started = True
 
-                self._connection.execute("COMMIT")
-                if deferred_error is not None:
-                    raise deferred_error
-                return result
-            except Exception as exc:
-                try:
-                    self._connection.execute("ROLLBACK")
-                except Exception:
-                    pass
-                if deferred_error is not None and exc is deferred_error:
-                    raise
-                if not self._is_transaction_conflict(exc):
-                    raise
-                last_error = exc
-                if attempt_number + 1 < self._max_transaction_retries:
-                    sleep(self._retry_delay_seconds)
-        raise RuntimeError(
-            "DuckLake transaction retry budget exhausted"
-        ) from last_error
+                    try:
+                        result = operation()
+                    except _CommitThenRaise as deferred:
+                        result = None
+                        deferred_error = deferred.error
+
+                    self._connection.execute("COMMIT")
+                    transaction_started = False
+
+                    if deferred_error is not None:
+                        raise deferred_error
+                    return result
+                except Exception as exc:
+                    if transaction_started:
+                        try:
+                            self._connection.execute("ROLLBACK")
+                        except Exception:
+                            pass
+
+                    if deferred_error is not None and exc is deferred_error:
+                        raise
+                    if not self._is_transaction_conflict(exc):
+                        raise
+
+                    last_error = exc
+                    if attempt_number + 1 < self._max_transaction_retries:
+                        self._reconnect()
+                        sleep(self._retry_delay_seconds)
+
+            raise RuntimeError(
+                "DuckLake transaction retry budget exhausted"
+            ) from last_error
+
+    def _reconnect(self) -> None:
+        if self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._connection = None
+        self._attach()
 
     def _touch_coordination(self) -> None:
         self._connection.execute(
@@ -451,7 +522,8 @@ class DuckLakeTaskRepository:
                 heartbeat_at,
                 lease_expires_at,
                 status,
-                error
+                error,
+                failure_kind
             FROM moldock.attempts
             WHERE task_id = ? AND run_id = ?
             ORDER BY attempt_number
@@ -474,7 +546,8 @@ class DuckLakeTaskRepository:
                 heartbeat_at,
                 lease_expires_at,
                 status,
-                error
+                error,
+                failure_kind
             FROM moldock.attempts
             WHERE attempt_id = ?
             """,
@@ -488,7 +561,7 @@ class DuckLakeTaskRepository:
         self._connection.execute(
             """
             INSERT INTO moldock.attempts
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             self._attempt_values(attempt),
         )
@@ -514,6 +587,11 @@ class DuckLakeTaskRepository:
             attempt.lease_expires_at,
             attempt.status.value,
             attempt.error,
+            (
+                attempt.failure_kind.value
+                if attempt.failure_kind is not None
+                else None
+            ),
         ]
 
     @staticmethod
@@ -530,6 +608,11 @@ class DuckLakeTaskRepository:
             lease_expires_at=row[8],
             status=TaskStatus(row[9]),
             error=row[10],
+            failure_kind=(
+                FailureKind(row[11])
+                if row[11] is not None
+                else None
+            ),
         )
 
     @staticmethod

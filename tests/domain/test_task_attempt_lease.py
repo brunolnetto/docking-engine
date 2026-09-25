@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from moldock.domain import DomainValidationError, TaskAttempt, TaskStatus
+from moldock.domain import DomainValidationError, FailureKind, TaskAttempt, TaskStatus
 
 
 T0 = datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc)
@@ -102,7 +102,7 @@ def test_terminal_attempts_clear_lease_state():
     attempt = make_running()
 
     succeeded = attempt.succeed(T0 + timedelta(minutes=1))
-    failed = attempt.fail(T0 + timedelta(minutes=1), "boom")
+    failed = attempt.fail(T0 + timedelta(minutes=1), "boom", FailureKind.BACKEND)
 
     assert succeeded.heartbeat_at is None
     assert succeeded.lease_expires_at is None

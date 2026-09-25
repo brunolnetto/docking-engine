@@ -8,7 +8,7 @@ import duckdb
 
 import pytest
 
-from moldock.domain import DockingTask, DomainValidationError, TaskStatus
+from moldock.domain import DockingTask, DomainValidationError, FailureKind, TaskStatus
 from moldock.repositories import DuckLakeTaskRepository, TaskRepository
 
 
@@ -219,7 +219,7 @@ def test_ducklake_repository_rejects_naive_timestamps(tmp_path, method):
     elif method == "succeed":
         action = lambda: repo.succeed(attempt.attempt_id, naive)
     else:
-        action = lambda: repo.fail(attempt.attempt_id, naive, "boom")
+        action = lambda: repo.fail(attempt.attempt_id, naive, "boom", FailureKind.BACKEND)
 
     with pytest.raises(DomainValidationError, match="timezone-aware"):
         action()
@@ -275,4 +275,5 @@ def test_deferred_expiry_commit_conflict_is_retried_before_domain_error(tmp_path
     assert wrapped.conflicts == 1
     history = repo.attempts_for(task.task_id, "run_1")
     assert history[-1].status is TaskStatus.FAILED
+    assert history[-1].failure_kind is FailureKind.LEASE
     assert history[-1].error == "lease expired"

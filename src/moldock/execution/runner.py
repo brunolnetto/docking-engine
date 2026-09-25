@@ -5,7 +5,13 @@ from datetime import datetime, timedelta
 from threading import Event, Lock
 from typing import Protocol
 
-from moldock.domain import DomainValidationError, TaskAttempt, TaskStatus
+from moldock.domain import (
+    DomainValidationError,
+    ExecutionFailure,
+    FailureKind,
+    TaskAttempt,
+    TaskStatus,
+)
 from moldock.repositories import TaskRepository
 
 from .executor import TaskExecutor
@@ -22,6 +28,15 @@ class HeartbeatController(Protocol):
 
 
 HeartbeatFactory = Callable[..., HeartbeatController]
+
+
+def _failure(error: Exception, default_kind: FailureKind) -> ExecutionFailure:
+    if isinstance(error, ExecutionFailure):
+        return error
+    return ExecutionFailure(
+        default_kind,
+        f"{type(error).__name__}: {error}",
+    )
 
 
 class LeasedWorkerRunner:
@@ -60,7 +75,6 @@ class LeasedWorkerRunner:
         return self._stopped.is_set()
 
     def stop(self) -> None:
-        """Prevent future claims without cancelling the active attempt."""
         with self._claim_lock:
             self._stopped.set()
 
@@ -109,33 +123,50 @@ class LeasedWorkerRunner:
                         execution_error = stop_error
 
         if not heartbeat_started and execution_error is not None:
-            return self._finalize_attempt(
-                attempt,
-                lambda: self._tasks.fail(
-                    attempt.attempt_id,
-                    self._clock(),
-                    f"{type(execution_error).__name__}: {execution_error}",
-                ),
-            )
+            failure = _failure(execution_error, FailureKind.LEASE)
+            return self._fail_attempt(attempt, failure)
 
         current = self._current_attempt(attempt)
         if current.status is not TaskStatus.RUNNING:
             return current
 
-        error = heartbeat.error or execution_error
-        if error is not None:
-            return self._finalize_attempt(
+        heartbeat_error = heartbeat.error if heartbeat is not None else None
+        if heartbeat_error is not None:
+            return self._fail_attempt(
                 attempt,
-                lambda: self._tasks.fail(
-                    attempt.attempt_id,
-                    self._clock(),
-                    f"{type(error).__name__}: {error}",
+                _failure(heartbeat_error, FailureKind.LEASE),
+            )
+
+        if execution_error is not None:
+            return self._fail_attempt(
+                attempt,
+                _failure(
+                    execution_error,
+                    FailureKind.INFRASTRUCTURE,
                 ),
             )
 
         return self._finalize_attempt(
             attempt,
-            lambda: self._tasks.succeed(attempt.attempt_id, self._clock()),
+            lambda: self._tasks.succeed(
+                attempt.attempt_id,
+                self._clock(),
+            ),
+        )
+
+    def _fail_attempt(
+        self,
+        attempt: TaskAttempt,
+        failure: ExecutionFailure,
+    ) -> TaskAttempt:
+        return self._finalize_attempt(
+            attempt,
+            lambda: self._tasks.fail(
+                attempt.attempt_id,
+                self._clock(),
+                str(failure),
+                failure.kind,
+            ),
         )
 
     def _current_attempt(self, attempt: TaskAttempt) -> TaskAttempt:

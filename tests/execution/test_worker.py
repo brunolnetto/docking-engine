@@ -6,6 +6,7 @@ from moldock.domain import (
     DockingOutputArtifact,
     DockingResult,
     DockingTask,
+    FailureKind,
     TaskStatus,
 )
 from moldock.execution import MemoryDockingInputResolver, Worker
@@ -95,6 +96,7 @@ def test_backend_failure_marks_attempt_failed_without_artifacts():
 
     assert attempt is not None
     assert attempt.status is TaskStatus.FAILED
+    assert attempt.failure_kind is FailureKind.BACKEND
     assert "DockingBackendError" in attempt.error
     assert artifacts.list_for_attempt(attempt.attempt_id) == ()
 
@@ -187,6 +189,7 @@ def test_artifact_persistence_failure_marks_attempt_failed():
 
     assert attempt is not None
     assert attempt.status is TaskStatus.FAILED
+    assert attempt.failure_kind is FailureKind.ARTIFACT
     assert "object store unavailable" in attempt.error
     assert artifacts.list_for_attempt(attempt.attempt_id) == ()
 
@@ -209,6 +212,7 @@ def test_input_resolution_failure_marks_attempt_failed():
 
     assert attempt is not None
     assert attempt.status is TaskStatus.FAILED
+    assert attempt.failure_kind is FailureKind.INPUT
     assert "prepared receptor" in attempt.error
 
 
@@ -235,4 +239,5 @@ def test_claimed_task_missing_from_repository_marks_attempt_failed():
 
     assert attempt is not None
     assert attempt.status is TaskStatus.FAILED
+    assert attempt.failure_kind is FailureKind.INFRASTRUCTURE
     assert "claimed task not found" in attempt.error
