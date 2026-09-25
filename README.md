@@ -86,3 +86,43 @@ The deadline is enforced at the subprocess boundary through `subprocess.run(...,
 `TIMEOUT` is retryable by the default `RetryPolicy`.
 
 This deliberately does not attempt to terminate arbitrary Python worker threads. Timeouts are owned by execution boundaries that can be cancelled safely, such as the Vina subprocess adapter.
+
+
+## RustFS artifact storage
+
+`RustFSArtifactStore` persists artifact bytes in RustFS through its S3-compatible API while preserving the existing `ArtifactStore` contract.
+
+Install the optional client dependency with:
+
+```bash
+python -m pip install -e ".[rustfs]"
+```
+
+Example:
+
+```python
+from moldock.storage import RustFSArtifactStore
+
+store = RustFSArtifactStore(
+    bucket="moldock",
+    endpoint_url="http://127.0.0.1:9000",
+    access_key_id="rustfsadmin",
+    secret_access_key="change-me",
+)
+```
+
+Objects are content-addressed by SHA-256 and stored under deterministic keys:
+
+```text
+artifacts/sha256/<first-two-hex>/<sha256>
+```
+
+Before writing, the store verifies an existing content-addressed object when present. If absent, it performs a normal object PUT and verifies the stored bytes afterward. Concurrent writers of identical content may both PUT, but they target the same deterministic key with the same bytes and therefore converge safely without relying on RustFS conditional-PUT atomicity. Existing objects and reads are verified against their content hash, size, and stored integrity metadata before reuse.
+
+Artifact metadata stores restart-safe URIs such as:
+
+```text
+s3://moldock/artifacts/sha256/ab/ab...
+```
+
+The bucket is expected to exist before the store is used; bucket lifecycle remains an infrastructure concern rather than an artifact-domain operation.
