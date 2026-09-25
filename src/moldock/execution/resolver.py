@@ -23,9 +23,19 @@ class MemoryDockingInputResolver:
         self._parameters: dict[str, Mapping[str, Any]] = {}
 
     def register_receptor(self, prepared_receptor_id: str, content: bytes) -> None:
+        existing = self._receptors.get(prepared_receptor_id)
+        if existing is not None and existing != content:
+            raise DomainValidationError(
+                "prepared receptor ID already exists with conflicting content"
+            )
         self._receptors[prepared_receptor_id] = content
 
     def register_ligand(self, prepared_ligand_id: str, content: bytes) -> None:
+        existing = self._ligands.get(prepared_ligand_id)
+        if existing is not None and existing != content:
+            raise DomainValidationError(
+                "prepared ligand ID already exists with conflicting content"
+            )
         self._ligands[prepared_ligand_id] = content
 
     def register_search_space(self, search_space: DockingBox) -> None:
