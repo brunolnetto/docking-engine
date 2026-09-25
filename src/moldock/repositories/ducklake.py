@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Lock, RLock
 from time import sleep
 import os
 
@@ -23,6 +24,20 @@ from moldock.domain import (
 
 
 BeforeClaimWrite = Callable[[], None]
+
+
+_CATALOG_LOCKS_GUARD = Lock()
+_CATALOG_WRITE_LOCKS: dict[Path, RLock] = {}
+
+
+def _catalog_write_lock(catalog_path: Path) -> RLock:
+    key = catalog_path.resolve()
+    with _CATALOG_LOCKS_GUARD:
+        lock = _CATALOG_WRITE_LOCKS.get(key)
+        if lock is None:
+            lock = RLock()
+            _CATALOG_WRITE_LOCKS[key] = lock
+        return lock
 
 
 class DuckLakeTaskRepository:
@@ -57,6 +72,7 @@ class DuckLakeTaskRepository:
 
         self._catalog_path = Path(catalog_path)
         self._data_path = Path(data_path)
+        self._write_lock = _catalog_write_lock(self._catalog_path)
         self._catalog_path.parent.mkdir(parents=True, exist_ok=True)
         self._data_path.mkdir(parents=True, exist_ok=True)
         self._retry_policy = retry_policy or RetryPolicy()
@@ -388,46 +404,51 @@ class DuckLakeTaskRepository:
             self._connection.close()
 
     def _run_write(self, operation):
-        last_error: Exception | None = None
-        for attempt_number in range(self._max_transaction_retries):
-            deferred_error: Exception | None = None
-            transaction_started = False
-            try:
-                self._connection.execute("BEGIN TRANSACTION")
-                transaction_started = True
-
-                try:
-                    result = operation()
-                except _CommitThenRaise as deferred:
-                    result = None
-                    deferred_error = deferred.error
-
-                self._connection.execute("COMMIT")
+        # SQLite-backed DuckLake catalogs are single-writer. Serialize writes
+        # for repository instances sharing this catalog within the current
+        # process, while keeping database-level retry/reconnect handling for
+        # conflicts with other processes.
+        with self._write_lock:
+            last_error: Exception | None = None
+            for attempt_number in range(self._max_transaction_retries):
+                deferred_error: Exception | None = None
                 transaction_started = False
+                try:
+                    self._connection.execute("BEGIN TRANSACTION")
+                    transaction_started = True
 
-                if deferred_error is not None:
-                    raise deferred_error
-                return result
-            except Exception as exc:
-                if transaction_started:
                     try:
-                        self._connection.execute("ROLLBACK")
-                    except Exception:
-                        pass
+                        result = operation()
+                    except _CommitThenRaise as deferred:
+                        result = None
+                        deferred_error = deferred.error
 
-                if deferred_error is not None and exc is deferred_error:
-                    raise
-                if not self._is_transaction_conflict(exc):
-                    raise
+                    self._connection.execute("COMMIT")
+                    transaction_started = False
 
-                last_error = exc
-                if attempt_number + 1 < self._max_transaction_retries:
-                    self._reconnect()
-                    sleep(self._retry_delay_seconds)
+                    if deferred_error is not None:
+                        raise deferred_error
+                    return result
+                except Exception as exc:
+                    if transaction_started:
+                        try:
+                            self._connection.execute("ROLLBACK")
+                        except Exception:
+                            pass
 
-        raise RuntimeError(
-            "DuckLake transaction retry budget exhausted"
-        ) from last_error
+                    if deferred_error is not None and exc is deferred_error:
+                        raise
+                    if not self._is_transaction_conflict(exc):
+                        raise
+
+                    last_error = exc
+                    if attempt_number + 1 < self._max_transaction_retries:
+                        self._reconnect()
+                        sleep(self._retry_delay_seconds)
+
+            raise RuntimeError(
+                "DuckLake transaction retry budget exhausted"
+            ) from last_error
 
     def _reconnect(self) -> None:
         if self._connection is not None:
