@@ -72,7 +72,11 @@ class InMemoryTaskRepository:
             raise DomainValidationError("run_id must not be blank")
         if not worker_id.strip():
             raise DomainValidationError("worker_id must not be blank")
-        duration = lease_duration or self._default_lease_duration
+        duration = (
+            self._default_lease_duration
+            if lease_duration is None
+            else lease_duration
+        )
         if duration <= timedelta(0):
             raise DomainValidationError("lease_duration must be > 0")
 
@@ -129,7 +133,11 @@ class InMemoryTaskRepository:
         at: datetime,
         lease_duration: timedelta | None = None,
     ) -> TaskAttempt:
-        duration = lease_duration or self._default_lease_duration
+        duration = (
+            self._default_lease_duration
+            if lease_duration is None
+            else lease_duration
+        )
         if duration <= timedelta(0):
             raise DomainValidationError("lease_duration must be > 0")
 
