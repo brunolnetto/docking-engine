@@ -176,6 +176,9 @@ class DuckLakeRepositoryBase:
 
     @staticmethod
     def _is_transaction_conflict(error: Exception) -> bool:
+        if isinstance(error, DomainValidationError):
+            return False
+
         transaction_error = getattr(
             duckdb,
             "TransactionException",
@@ -186,11 +189,13 @@ class DuckLakeRepositoryBase:
             and isinstance(error, transaction_error)
         ):
             return True
+
         message = str(error).lower()
         return (
-            "conflict" in message
+            "transaction conflict" in message
             or "database is locked" in message
-            or "serialization" in message
+            or "serialization conflict" in message
+            or "serialization failure" in message
             or (
                 "transaction" in message
                 and "retry" in message

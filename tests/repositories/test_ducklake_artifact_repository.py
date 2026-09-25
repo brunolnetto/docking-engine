@@ -163,3 +163,15 @@ def test_shared_adapter_writes_touch_coordination_row(tmp_path):
         assert after == before + 1
     finally:
         repo.close()
+
+
+def test_domain_conflict_is_not_retried_as_transaction_conflict(tmp_path):
+    repo = make_repo(tmp_path)
+    first = make_artifact()
+    conflicting = make_artifact(uri="memory://blob/conflicting")
+    repo.register(first)
+
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register(conflicting)
+
+    assert repo.get(first.artifact_id) == first
