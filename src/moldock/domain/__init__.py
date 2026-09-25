@@ -4,6 +4,7 @@ from .common import DomainValidationError, content_id
 from .execution import DockingOutputArtifact, DockingResult
 from .execution_request import DockingExecutionRequest
 from .experiment import DockingExperiment
+from .failure import ExecutionFailure, FailureKind
 from .prepared import PreparedLigand, PreparedReceptor
 from .result import Pose, PoseRanking, PoseScore, ScoreKind
 from .retry import RetryPolicy
@@ -26,6 +27,8 @@ __all__ = [
     "ExperimentRun",
     "TaskAttempt",
     "TaskStatus",
+    "FailureKind",
+    "ExecutionFailure",
     "RetryPolicy",
     "Pose",
     "PoseScore",
