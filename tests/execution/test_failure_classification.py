@@ -177,3 +177,29 @@ def test_backend_timeouts_are_classified_as_timeout():
         executor.execute(attempt)
 
     assert error.value.kind is FailureKind.TIMEOUT
+
+
+
+class TypedFailingResolver:
+    def __init__(self, failure):
+        self.failure = failure
+
+    def resolve(self, task):
+        raise self.failure
+
+
+def test_existing_execution_failure_is_preserved_without_reclassification():
+    original = ExecutionFailure(
+        FailureKind.TIMEOUT,
+        "already classified",
+    )
+    executor, attempt, _ = make_claimed_executor(
+        resolver=TypedFailingResolver(original),
+        backend=NeverBackend(),
+    )
+
+    with pytest.raises(ExecutionFailure) as error:
+        executor.execute(attempt)
+
+    assert error.value is original
+    assert error.value.kind is FailureKind.TIMEOUT
