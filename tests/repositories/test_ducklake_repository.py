@@ -277,3 +277,119 @@ def test_deferred_expiry_commit_conflict_is_retried_before_domain_error(tmp_path
     assert history[-1].status is TaskStatus.FAILED
     assert history[-1].failure_kind is FailureKind.LEASE
     assert history[-1].error == "lease expired"
+
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"default_lease_duration": timedelta(0)}, "default_lease_duration"),
+        ({"max_transaction_retries": 0}, "max_transaction_retries"),
+        ({"retry_delay_seconds": -1}, "retry_delay_seconds"),
+    ],
+)
+def test_ducklake_repository_validates_constructor_configuration(
+    tmp_path,
+    kwargs,
+    message,
+):
+    with pytest.raises(DomainValidationError, match=message):
+        DuckLakeTaskRepository(
+            catalog_path=tmp_path / "catalog.sqlite",
+            data_path=tmp_path / "data",
+            **kwargs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("run_id", "worker_id", "message"),
+    [
+        (" ", "worker_1", "run_id"),
+        ("run_1", " ", "worker_id"),
+    ],
+)
+def test_ducklake_claim_rejects_blank_identity_fields(
+    tmp_path,
+    run_id,
+    worker_id,
+    message,
+):
+    repo = make_repo(tmp_path)
+    repo.register(make_task())
+
+    with pytest.raises(DomainValidationError, match=message):
+        repo.claim_next("exp_1", run_id, worker_id, T0)
+
+
+def test_ducklake_claim_rejects_non_positive_lease_duration(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.register(make_task())
+
+    with pytest.raises(DomainValidationError, match="lease_duration"):
+        repo.claim_next(
+            "exp_1",
+            "run_1",
+            "worker_1",
+            T0,
+            lease_duration=timedelta(0),
+        )
+
+
+def test_ducklake_heartbeat_rejects_wrong_worker(tmp_path):
+    repo = make_repo(tmp_path)
+    task = make_task()
+    repo.register(task)
+    attempt = repo.claim_next("exp_1", "run_1", "worker_1", T0)
+    assert attempt is not None
+
+    with pytest.raises(DomainValidationError, match="does not own"):
+        repo.heartbeat(
+            attempt.attempt_id,
+            worker_id="worker_2",
+            at=T0 + timedelta(seconds=1),
+        )
+
+
+def test_ducklake_heartbeat_expiry_is_committed_before_error(tmp_path):
+    repo = DuckLakeTaskRepository(
+        catalog_path=tmp_path / "catalog.sqlite",
+        data_path=tmp_path / "data",
+        default_lease_duration=timedelta(minutes=1),
+        retry_delay_seconds=0,
+    )
+    task = make_task()
+    repo.register(task)
+    attempt = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        lease_duration=timedelta(minutes=1),
+    )
+    assert attempt is not None
+
+    with pytest.raises(DomainValidationError, match="lease has expired"):
+        repo.heartbeat(
+            attempt.attempt_id,
+            worker_id="worker_1",
+            at=T0 + timedelta(minutes=2),
+        )
+
+    history = repo.attempts_for(task.task_id, "run_1")
+    assert history[-1].status is TaskStatus.FAILED
+    assert history[-1].failure_kind is FailureKind.LEASE
+
+
+def test_ducklake_unknown_attempt_is_rejected(tmp_path):
+    repo = make_repo(tmp_path)
+
+    with pytest.raises(DomainValidationError, match="unknown attempt"):
+        repo.succeed("missing-attempt", T0)
+
+
+def test_ducklake_rejects_non_datetime_timestamp(tmp_path):
+    repo = make_repo(tmp_path)
+    repo.register(make_task())
+
+    with pytest.raises(DomainValidationError, match="must be a datetime"):
+        repo.claim_next("exp_1", "run_1", "worker_1", "2026-09-25")
