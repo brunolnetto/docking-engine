@@ -66,6 +66,11 @@ def test_request_deep_freezes_nested_parameters():
         request.parameters["search"]["options"]["local_only"] = True
 
 
+def test_request_rejects_non_mapping_parameters():
+    with pytest.raises(DomainValidationError, match="parameters must be a mapping"):
+        make_request(parameters=["exhaustiveness", 8])
+
+
 @pytest.mark.parametrize("field", ["receptor_pdbqt", "ligand_pdbqt"])
 def test_request_requires_bytes(field):
     with pytest.raises(DomainValidationError):

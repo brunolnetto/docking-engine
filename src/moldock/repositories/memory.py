@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import RLock
 
 from moldock.domain import (
     ArtifactMetadata,
     DockingTask,
     DomainValidationError,
+    RetryPolicy,
     TaskAttempt,
     TaskStatus,
     content_id,
@@ -15,11 +16,20 @@ from moldock.domain import (
 
 
 class InMemoryTaskRepository:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        retry_policy: RetryPolicy | None = None,
+        default_lease_duration: timedelta = timedelta(minutes=5),
+    ) -> None:
+        if default_lease_duration <= timedelta(0):
+            raise DomainValidationError("default_lease_duration must be > 0")
         self._tasks: dict[str, DockingTask] = {}
         self._attempts: dict[str, TaskAttempt] = {}
         self._attempt_ids_by_task_run: dict[tuple[str, str], list[str]] = defaultdict(list)
         self._lock = RLock()
+        self._retry_policy = retry_policy or RetryPolicy()
+        self._default_lease_duration = default_lease_duration
 
     def register(self, task: DockingTask) -> None:
         with self._lock:
@@ -55,22 +65,40 @@ class InMemoryTaskRepository:
         run_id: str,
         worker_id: str,
         at: datetime,
+        *,
+        lease_duration: timedelta | None = None,
     ) -> TaskAttempt | None:
         if not run_id.strip():
             raise DomainValidationError("run_id must not be blank")
         if not worker_id.strip():
             raise DomainValidationError("worker_id must not be blank")
+        duration = (
+            self._default_lease_duration
+            if lease_duration is None
+            else lease_duration
+        )
+        if duration <= timedelta(0):
+            raise DomainValidationError("lease_duration must be > 0")
 
         with self._lock:
             for task in self.list_for_experiment(experiment_id):
                 history = self.attempts_for(task.task_id, run_id)
-                if history and history[-1].status in {
-                    TaskStatus.RUNNING,
-                    TaskStatus.SUCCEEDED,
-                }:
+
+                if history and history[-1].status is TaskStatus.RUNNING:
+                    latest = history[-1]
+                    if not latest.lease_expired(at):
+                        continue
+                    expired = latest.fail(at, "lease expired")
+                    self._attempts[latest.attempt_id] = expired
+                    history = self.attempts_for(task.task_id, run_id)
+
+                if history and history[-1].status is TaskStatus.SUCCEEDED:
                     continue
 
                 attempt_number = len(history) + 1
+                if not self._retry_policy.can_attempt(attempt_number):
+                    continue
+
                 attempt = TaskAttempt(
                     attempt_id=content_id(
                         "attempt",
@@ -85,6 +113,8 @@ class InMemoryTaskRepository:
                     attempt_number=attempt_number,
                     worker_id=worker_id,
                     started_at=at,
+                    heartbeat_at=at,
+                    lease_expires_at=at + duration,
                     status=TaskStatus.RUNNING,
                 )
                 self._attempts[attempt.attempt_id] = attempt
@@ -95,9 +125,47 @@ class InMemoryTaskRepository:
 
             return None
 
+    def heartbeat(
+        self,
+        attempt_id: str,
+        *,
+        worker_id: str,
+        at: datetime,
+        lease_duration: timedelta | None = None,
+    ) -> TaskAttempt:
+        duration = (
+            self._default_lease_duration
+            if lease_duration is None
+            else lease_duration
+        )
+        if duration <= timedelta(0):
+            raise DomainValidationError("lease_duration must be > 0")
+
+        with self._lock:
+            attempt = self._require_attempt(attempt_id)
+            if attempt.worker_id != worker_id:
+                raise DomainValidationError(
+                    "worker does not own this attempt"
+                )
+            if attempt.lease_expired(at):
+                expired = attempt.fail(at, "lease expired")
+                self._attempts[attempt_id] = expired
+                raise DomainValidationError("attempt lease has expired")
+
+            updated = attempt.heartbeat(
+                at=at,
+                lease_duration=duration,
+            )
+            self._attempts[attempt_id] = updated
+            return updated
+
     def succeed(self, attempt_id: str, at: datetime) -> TaskAttempt:
         with self._lock:
             attempt = self._require_attempt(attempt_id)
+            if attempt.lease_expired(at):
+                expired = attempt.fail(at, "lease expired")
+                self._attempts[attempt_id] = expired
+                raise DomainValidationError("attempt lease has expired")
             updated = attempt.succeed(at)
             self._attempts[attempt_id] = updated
             return updated

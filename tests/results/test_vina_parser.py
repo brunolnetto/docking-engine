@@ -86,6 +86,33 @@ def test_geometry_identity_changes_when_atom_record_changes():
     assert first.poses[0].pose_id != second.poses[0].pose_id
 
 
+def test_parser_rejects_nested_model_before_endmdl():
+    content = (
+        b"MODEL 1\n"
+        b"REMARK VINA RESULT: -8.0 0.0 0.0\n"
+        b"MODEL 2\n"
+    )
+
+    with pytest.raises(VinaResultParseError, match="unterminated MODEL 1"):
+        parse(content)
+
+
+def test_parser_ignores_records_and_endmdl_outside_models():
+    content = (
+        b"REMARK preface\n"
+        b"ENDMDL\n"
+        b"MODEL 1\n"
+        b"REMARK VINA RESULT: -8.0 0.0 0.0\n"
+        b"HETATM    1  C   LIG A   1       0.000   0.000   0.000\n"
+        b"ENDMDL\n"
+        b"REMARK trailer\n"
+    )
+
+    parsed = parse(content)
+
+    assert len(parsed.poses) == 1
+
+
 @pytest.mark.parametrize(
     "content, message",
     [

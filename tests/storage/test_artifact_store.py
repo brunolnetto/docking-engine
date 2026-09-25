@@ -17,6 +17,7 @@ def test_put_and_get_round_trip():
     assert len(blob.sha256) == 64
     assert blob.uri.startswith("memory://blobs/")
     assert store.get(blob.blob_id) == b"pose-bytes"
+    assert store.read(blob.uri) == b"pose-bytes"
 
 
 def test_identical_content_is_deduplicated():
@@ -47,3 +48,10 @@ def test_get_rejects_unknown_blob():
 
     with pytest.raises(DomainValidationError, match="unknown blob"):
         store.get("blob_missing")
+
+
+def test_read_rejects_unsupported_uri():
+    store = MemoryArtifactStore()
+
+    with pytest.raises(DomainValidationError, match="unsupported"):
+        store.read("s3://bucket/blob")

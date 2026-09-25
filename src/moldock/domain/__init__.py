@@ -6,6 +6,7 @@ from .execution_request import DockingExecutionRequest
 from .experiment import DockingExperiment
 from .prepared import PreparedLigand, PreparedReceptor
 from .result import Pose, PoseRanking, PoseScore, ScoreKind
+from .retry import RetryPolicy
 from .search_space import DockingBox
 from .task import DockingTask, ExperimentRun, TaskAttempt, TaskStatus
 
@@ -25,6 +26,7 @@ __all__ = [
     "ExperimentRun",
     "TaskAttempt",
     "TaskStatus",
+    "RetryPolicy",
     "Pose",
     "PoseScore",
     "PoseRanking",

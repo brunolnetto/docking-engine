@@ -4,59 +4,49 @@
 
 Domain-first foundations for a reproducible molecular docking execution system.
 
-## Execution and scientific-result flow
+## Execution resilience
 
-```text
-TaskRepository
-      │
-      ▼
-Worker
-      │
-      ▼
-DockingInputResolver
-      │
-      ▼
-DockingBackend (Vina / Fake)
-      │
-      ▼
-raw backend artifact
-      │
-      ├── ArtifactStore
-      ├── ArtifactRepository
-      │
-      ▼
-ScientificResultInterpreter
-      │
-      ▼
-Pose + PoseScore + PoseRanking
+Task attempts now carry an execution lease:
+
+- `heartbeat_at`
+- `lease_expires_at`
+
+A running attempt with an active lease cannot be reclaimed. When the lease expires, the repository marks that attempt failed with `lease expired` and may create the next attempt according to the configured `RetryPolicy`.
+
+`RetryPolicy(max_attempts=N)` bounds attempts within a run.
+
+The in-memory repository provides these semantics under a process-local lock. A PostgreSQL implementation can preserve the same contract with transactional claiming and row locking.
+
+Workers can renew ownership through:
+
+```python
+repo.heartbeat(
+    attempt_id,
+    worker_id="worker-1",
+    at=now,
+    lease_duration=timedelta(minutes=5),
+)
 ```
 
-### Scientific result semantics
+Terminal attempts clear lease state.
 
-Pose geometry, score, and ranking are separate identities.
+## Current architecture
 
-- `Pose` identifies a specific geometry derived from a raw backend artifact.
-- `PoseScore` records a typed scoring observation, including method and version.
-- `PoseRanking` records an ordering under a particular ranking method.
+```text
+Experiment
+  ↓
+TaskPlanner
+  ↓
+TaskRepository
+  ↓ claim + lease
+Worker
+  ↓
+DockingBackend
+  ↓
+Artifact + Scientific Results
+```
 
-This allows the same pose geometry to be rescored or reranked later without changing its pose identity.
-
-### Vina result parsing
-
-`VinaResultParser` parses numbered PDBQT `MODEL` blocks and their `REMARK VINA RESULT` records into:
-
-- one `Pose` per model
-- one `VINA_AFFINITY` score per pose
-- one Vina-affinity ranking per pose
-- RMSD lower/upper bounds as score metadata
-
-The raw PDBQT remains the immutable source artifact.
-
-### Artifact storage
-
-Blob storage and scientific provenance remain separate. `ArtifactStore.read(uri)` allows interpreters to retrieve bytes without depending on storage-specific URI parsing.
-
-### Testing
+## Development
 
 ```bash
 python -m pip install -e ".[dev]"

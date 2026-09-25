@@ -13,6 +13,7 @@ from moldock.domain import (
 
 UTC = timezone.utc
 T0 = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+LEASE = timedelta(minutes=5)
 
 
 def make_task(**overrides):
@@ -49,6 +50,17 @@ def make_attempt(**overrides):
     )
     values.update(overrides)
     return TaskAttempt(**values)
+
+
+def running_attempt(**overrides):
+    values = dict(
+        status=TaskStatus.RUNNING,
+        started_at=T0,
+        heartbeat_at=T0,
+        lease_expires_at=T0 + LEASE,
+    )
+    values.update(overrides)
+    return make_attempt(**values)
 
 
 def test_task_identity_depends_on_prepared_inputs_and_experiment():
@@ -98,11 +110,13 @@ def test_run_can_finish_only_after_it_starts():
 def test_attempt_happy_path_pending_running_succeeded():
     pending = make_attempt()
 
-    running = pending.start(T0)
+    running = pending.start(T0, lease_duration=LEASE)
     succeeded = running.succeed(T0 + timedelta(seconds=5))
 
     assert pending.status is TaskStatus.PENDING
     assert running.status is TaskStatus.RUNNING
+    assert running.heartbeat_at == T0
+    assert running.lease_expires_at == T0 + LEASE
     assert succeeded.status is TaskStatus.SUCCEEDED
     assert succeeded.started_at == T0
     assert succeeded.finished_at == T0 + timedelta(seconds=5)
@@ -112,7 +126,7 @@ def test_attempt_happy_path_pending_running_succeeded():
 def test_attempt_can_fail_with_error():
     failed = (
         make_attempt()
-        .start(T0)
+        .start(T0, lease_duration=LEASE)
         .fail(T0 + timedelta(seconds=2), "vina process exited with code 1")
     )
 
@@ -148,6 +162,7 @@ def test_attempt_rejects_completion_before_start_on_direct_construction():
     "overrides",
     [
         {"status": TaskStatus.PENDING, "started_at": T0},
+        {"status": TaskStatus.PENDING, "heartbeat_at": T0},
         {"status": TaskStatus.PENDING, "error": "unexpected"},
         {
             "status": TaskStatus.PENDING,
@@ -155,14 +170,34 @@ def test_attempt_rejects_completion_before_start_on_direct_construction():
             "finished_at": T0 + timedelta(seconds=1),
         },
         {"status": TaskStatus.RUNNING},
+        {"status": TaskStatus.RUNNING, "started_at": T0},
         {
             "status": TaskStatus.RUNNING,
             "started_at": T0,
+            "heartbeat_at": T0,
+        },
+        {
+            "status": TaskStatus.RUNNING,
+            "started_at": T0,
+            "heartbeat_at": T0,
+            "lease_expires_at": T0 + LEASE,
             "finished_at": T0 + timedelta(seconds=1),
         },
-        {"status": TaskStatus.RUNNING, "started_at": T0, "error": "premature"},
+        {
+            "status": TaskStatus.RUNNING,
+            "started_at": T0,
+            "heartbeat_at": T0,
+            "lease_expires_at": T0 + LEASE,
+            "error": "premature",
+        },
         {"status": TaskStatus.SUCCEEDED},
         {"status": TaskStatus.SUCCEEDED, "started_at": T0},
+        {
+            "status": TaskStatus.SUCCEEDED,
+            "started_at": T0,
+            "finished_at": T0 + timedelta(seconds=1),
+            "heartbeat_at": T0,
+        },
         {
             "status": TaskStatus.SUCCEEDED,
             "started_at": T0,
@@ -175,6 +210,13 @@ def test_attempt_rejects_completion_before_start_on_direct_construction():
             "started_at": T0,
             "finished_at": T0 + timedelta(seconds=1),
             "error": " ",
+        },
+        {
+            "status": TaskStatus.FAILED,
+            "started_at": T0,
+            "finished_at": T0 + timedelta(seconds=1),
+            "error": "boom",
+            "lease_expires_at": T0 + LEASE,
         },
     ],
 )
@@ -189,7 +231,7 @@ def test_attempt_constructor_rejects_unsupported_status():
 
 
 def test_attempt_constructor_accepts_valid_running_state():
-    attempt = make_attempt(status=TaskStatus.RUNNING, started_at=T0)
+    attempt = running_attempt()
 
     assert attempt.status is TaskStatus.RUNNING
 
@@ -216,10 +258,15 @@ def test_attempt_constructor_accepts_valid_failed_state():
 
 
 def test_only_pending_attempt_can_start():
-    running = make_attempt(status=TaskStatus.RUNNING, started_at=T0)
+    running = running_attempt()
 
     with pytest.raises(DomainValidationError):
-        running.start(T0 + timedelta(seconds=1))
+        running.start(T0 + timedelta(seconds=1), lease_duration=LEASE)
+
+
+def test_start_rejects_non_positive_lease():
+    with pytest.raises(DomainValidationError):
+        make_attempt().start(T0, lease_duration=timedelta(0))
 
 
 def test_pending_attempt_cannot_succeed_without_starting():
@@ -228,7 +275,7 @@ def test_pending_attempt_cannot_succeed_without_starting():
 
 
 def test_attempt_cannot_succeed_before_it_started():
-    running = make_attempt().start(T0)
+    running = make_attempt().start(T0, lease_duration=LEASE)
 
     with pytest.raises(DomainValidationError):
         running.succeed(T0 - timedelta(seconds=1))
@@ -240,14 +287,14 @@ def test_only_running_attempt_can_fail():
 
 
 def test_failed_attempt_requires_non_blank_error():
-    running = make_attempt().start(T0)
+    running = make_attempt().start(T0, lease_duration=LEASE)
 
     with pytest.raises(DomainValidationError):
         running.fail(T0 + timedelta(seconds=1), " ")
 
 
 def test_attempt_cannot_fail_before_it_started():
-    running = make_attempt().start(T0)
+    running = make_attempt().start(T0, lease_duration=LEASE)
 
     with pytest.raises(DomainValidationError):
         running.fail(T0 - timedelta(seconds=1), "clock skew")
