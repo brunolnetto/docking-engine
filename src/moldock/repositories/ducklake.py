@@ -63,26 +63,47 @@ class DuckLakeTaskRepository:
         self._max_transaction_retries = max_transaction_retries
         self._retry_delay_seconds = retry_delay_seconds
         self._before_claim_write = before_claim_write
-        self._connection = duckdb.connect()
+        self._connection = None
         self._attach()
         self._initialize_schema()
 
     def _attach(self) -> None:
         catalog = os.path.relpath(self._catalog_path, Path.cwd()).replace("'", "''")
         data = os.path.relpath(self._data_path, Path.cwd()).replace("'", "''")
-        self._connection.execute("INSTALL sqlite")
-        self._connection.execute("INSTALL ducklake")
-        self._connection.execute("LOAD sqlite")
-        self._connection.execute("LOAD ducklake")
-        self._connection.execute(
-            f"""
-            ATTACH 'ducklake:sqlite:{catalog}' AS moldock
-            (
-                DATA_PATH '{data}',
-                DATA_INLINING_ROW_LIMIT 1000
-            )
-            """
-        )
+        last_error: Exception | None = None
+
+        for attempt_number in range(self._max_transaction_retries):
+            connection = duckdb.connect()
+            try:
+                connection.execute("INSTALL sqlite")
+                connection.execute("INSTALL ducklake")
+                connection.execute("LOAD sqlite")
+                connection.execute("LOAD ducklake")
+                connection.execute(
+                    f"""
+                    ATTACH 'ducklake:sqlite:{catalog}' AS moldock
+                    (
+                        DATA_PATH '{data}',
+                        DATA_INLINING_ROW_LIMIT 1000
+                    )
+                    """
+                )
+                self._connection = connection
+                return
+            except Exception as exc:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+                if not self._is_transaction_conflict(exc):
+                    raise
+                last_error = exc
+                if attempt_number + 1 < self._max_transaction_retries:
+                    sleep(self._retry_delay_seconds)
+
+        raise RuntimeError(
+            "DuckLake attach retry budget exhausted"
+        ) from last_error
 
     def _initialize_schema(self) -> None:
         def operation() -> None:
@@ -331,7 +352,8 @@ class DuckLakeTaskRepository:
         return self._attempts_for_current_transaction(task_id, run_id)
 
     def close(self) -> None:
-        self._connection.close()
+        if self._connection is not None:
+            self._connection.close()
 
     def _run_write(self, operation):
         last_error: Exception | None = None
