@@ -93,13 +93,29 @@ class LeasedWorkerRunner:
         )
 
         execution_error: Exception | None = None
-        heartbeat.start()
+        heartbeat_started = False
         try:
+            heartbeat.start()
+            heartbeat_started = True
             self._executor.execute(attempt)
         except Exception as exc:
             execution_error = exc
         finally:
-            heartbeat.stop()
+            try:
+                heartbeat.stop()
+            except Exception as stop_error:
+                if execution_error is None:
+                    execution_error = stop_error
+
+        if not heartbeat_started and execution_error is not None:
+            return self._finalize_attempt(
+                attempt,
+                lambda: self._tasks.fail(
+                    attempt.attempt_id,
+                    self._clock(),
+                    f"{type(execution_error).__name__}: {execution_error}",
+                ),
+            )
 
         current = self._current_attempt(attempt)
         if current.status is not TaskStatus.RUNNING:
