@@ -4,6 +4,7 @@ import pytest
 
 from moldock.domain import DomainValidationError
 from moldock.storage import ArtifactStore, FilesystemArtifactStore
+import moldock.storage.filesystem as filesystem_module
 
 
 def test_filesystem_store_implements_contract(tmp_path):
@@ -67,3 +68,63 @@ def test_store_rejects_uri_outside_its_root(tmp_path):
 
     with pytest.raises(DomainValidationError, match="unsupported"):
         store.read(outside.as_uri())
+
+
+def test_get_returns_the_same_bytes_that_passed_integrity_check(
+    tmp_path,
+    monkeypatch,
+):
+    store = FilesystemArtifactStore(tmp_path)
+    blob = store.put(b"original")
+    digest = blob.sha256
+    path = (
+        tmp_path
+        / "sha256"
+        / digest[:2]
+        / digest[2:4]
+        / digest
+    ).resolve()
+    original_read_bytes = Path.read_bytes
+    reads = 0
+
+    def changing_read_bytes(self):
+        nonlocal reads
+        if self.resolve() == path:
+            reads += 1
+            if reads == 1:
+                return b"original"
+            return b"changed-after-verification"
+        return original_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", changing_read_bytes)
+
+    assert store.get(blob.blob_id) == b"original"
+    assert reads == 1
+
+
+def test_put_fsyncs_directory_entries_before_returning(
+    tmp_path,
+    monkeypatch,
+):
+    synced = []
+
+    monkeypatch.setattr(
+        filesystem_module,
+        "_fsync_directory",
+        lambda path: synced.append(Path(path).resolve()),
+        raising=False,
+    )
+
+    store = FilesystemArtifactStore(tmp_path)
+    blob = store.put(b"durable")
+    digest = blob.sha256
+
+    root = tmp_path.resolve()
+    sha_root = root / "sha256"
+    first_shard = sha_root / digest[:2]
+    second_shard = first_shard / digest[2:4]
+
+    assert root in synced
+    assert sha_root in synced
+    assert first_shard in synced
+    assert second_shard in synced
