@@ -117,7 +117,7 @@ Objects are content-addressed by SHA-256 and stored under deterministic keys:
 artifacts/sha256/<first-two-hex>/<sha256>
 ```
 
-Writes use conditional creation (`If-None-Match: *`), so concurrent identical writes converge on one object. Existing objects and reads are verified against their content hash, size, and stored integrity metadata before reuse.
+Before writing, the store verifies an existing content-addressed object when present. If absent, it performs a normal object PUT and verifies the stored bytes afterward. Concurrent writers of identical content may both PUT, but they target the same deterministic key with the same bytes and therefore converge safely without relying on RustFS conditional-PUT atomicity. Existing objects and reads are verified against their content hash, size, and stored integrity metadata before reuse.
 
 Artifact metadata stores restart-safe URIs such as:
 
