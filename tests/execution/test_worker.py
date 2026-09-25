@@ -275,3 +275,21 @@ def test_timeout_failure_is_persisted_and_retryable():
     assert second is not None
     assert second.status is TaskStatus.SUCCEEDED
     assert second.attempt_number == 2
+
+
+
+def test_worker_stop_facade_prevents_future_claims():
+    task = make_task()
+    worker, tasks, _, _, _, _ = make_worker(
+        FakeDockingBackend(),
+        task,
+    )
+    tasks.register(task)
+
+    assert worker.stopped is False
+
+    worker.stop()
+
+    assert worker.stopped is True
+    assert worker.run_once("exp_1", "run_1", "worker_1") is None
+    assert tasks.attempts_for(task.task_id, "run_1") == ()
