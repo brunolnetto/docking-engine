@@ -83,29 +83,30 @@ class LeasedWorkerRunner:
         if attempt is None:
             return None
 
-        heartbeat = self._heartbeat_factory(
-            repository=self._tasks,
-            attempt=attempt,
-            worker_id=worker_id,
-            clock=self._clock,
-            lease_duration=self._lease_duration,
-            interval=self._heartbeat_interval,
-        )
-
         execution_error: Exception | None = None
+        heartbeat = None
         heartbeat_started = False
         try:
+            heartbeat = self._heartbeat_factory(
+                repository=self._tasks,
+                attempt=attempt,
+                worker_id=worker_id,
+                clock=self._clock,
+                lease_duration=self._lease_duration,
+                interval=self._heartbeat_interval,
+            )
             heartbeat.start()
             heartbeat_started = True
             self._executor.execute(attempt)
         except Exception as exc:
             execution_error = exc
         finally:
-            try:
-                heartbeat.stop()
-            except Exception as stop_error:
-                if execution_error is None:
-                    execution_error = stop_error
+            if heartbeat is not None:
+                try:
+                    heartbeat.stop()
+                except Exception as stop_error:
+                    if execution_error is None:
+                        execution_error = stop_error
 
         if not heartbeat_started and execution_error is not None:
             return self._finalize_attempt(
