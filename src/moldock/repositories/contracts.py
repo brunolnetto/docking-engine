@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol, runtime_checkable
 
 from moldock.domain import ArtifactMetadata, DockingTask, TaskAttempt
@@ -20,7 +20,18 @@ class TaskRepository(Protocol):
         run_id: str,
         worker_id: str,
         at: datetime,
+        *,
+        lease_duration: timedelta | None = None,
     ) -> TaskAttempt | None: ...
+
+    def heartbeat(
+        self,
+        attempt_id: str,
+        *,
+        worker_id: str,
+        at: datetime,
+        lease_duration: timedelta | None = None,
+    ) -> TaskAttempt: ...
 
     def succeed(self, attempt_id: str, at: datetime) -> TaskAttempt: ...
 

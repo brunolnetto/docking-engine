@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 from .common import DomainValidationError, content_id
@@ -76,6 +76,8 @@ class TaskAttempt:
     worker_id: str
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    lease_expires_at: datetime | None = None
     status: TaskStatus = TaskStatus.PENDING
     error: str | None = None
 
@@ -99,9 +101,18 @@ class TaskAttempt:
             raise DomainValidationError("finished_at cannot be before started_at")
 
         if self.status is TaskStatus.PENDING:
-            if self.started_at is not None or self.finished_at is not None or self.error is not None:
+            if any(
+                value is not None
+                for value in (
+                    self.started_at,
+                    self.finished_at,
+                    self.heartbeat_at,
+                    self.lease_expires_at,
+                    self.error,
+                )
+            ):
                 raise DomainValidationError(
-                    "pending attempt cannot have timestamps or error"
+                    "pending attempt cannot have timestamps, lease state, or error"
                 )
             return
 
@@ -112,6 +123,16 @@ class TaskAttempt:
                 raise DomainValidationError("running attempt cannot have finished_at")
             if self.error is not None:
                 raise DomainValidationError("running attempt cannot have an error")
+            if self.heartbeat_at is None:
+                raise DomainValidationError("running attempt must have heartbeat_at")
+            if self.lease_expires_at is None:
+                raise DomainValidationError("running attempt must have lease_expires_at")
+            if self.heartbeat_at < self.started_at:
+                raise DomainValidationError("heartbeat_at cannot precede started_at")
+            if self.lease_expires_at < self.heartbeat_at:
+                raise DomainValidationError(
+                    "lease_expires_at cannot precede heartbeat_at"
+                )
             return
 
         if self.status is TaskStatus.SUCCEEDED:
@@ -121,6 +142,10 @@ class TaskAttempt:
                 )
             if self.error is not None:
                 raise DomainValidationError("successful attempt cannot include an error")
+            if self.heartbeat_at is not None or self.lease_expires_at is not None:
+                raise DomainValidationError(
+                    "successful attempt cannot retain lease state"
+                )
             return
 
         if self.status is TaskStatus.FAILED:
@@ -130,14 +155,58 @@ class TaskAttempt:
                 )
             if not self.error or not self.error.strip():
                 raise DomainValidationError("failed attempt must include an error")
+            if self.heartbeat_at is not None or self.lease_expires_at is not None:
+                raise DomainValidationError(
+                    "failed attempt cannot retain lease state"
+                )
             return
 
         raise DomainValidationError(f"unsupported attempt status: {self.status!r}")
 
-    def start(self, at: datetime) -> "TaskAttempt":
+    def start(
+        self,
+        at: datetime,
+        *,
+        lease_duration: timedelta,
+    ) -> "TaskAttempt":
         if self.status is not TaskStatus.PENDING:
             raise DomainValidationError("only pending attempts can be started")
-        return replace(self, status=TaskStatus.RUNNING, started_at=at)
+        if lease_duration <= timedelta(0):
+            raise DomainValidationError("lease_duration must be > 0")
+        return replace(
+            self,
+            status=TaskStatus.RUNNING,
+            started_at=at,
+            heartbeat_at=at,
+            lease_expires_at=at + lease_duration,
+        )
+
+    def heartbeat(
+        self,
+        *,
+        at: datetime,
+        lease_duration: timedelta,
+    ) -> "TaskAttempt":
+        if self.status is not TaskStatus.RUNNING:
+            raise DomainValidationError("only running attempts can heartbeat")
+        if self.heartbeat_at is None:
+            raise DomainValidationError("running attempt must have heartbeat_at")
+        if at < self.heartbeat_at:
+            raise DomainValidationError("heartbeat cannot move backwards")
+        if lease_duration <= timedelta(0):
+            raise DomainValidationError("lease_duration must be > 0")
+        return replace(
+            self,
+            heartbeat_at=at,
+            lease_expires_at=at + lease_duration,
+        )
+
+    def lease_expired(self, at: datetime) -> bool:
+        return (
+            self.status is TaskStatus.RUNNING
+            and self.lease_expires_at is not None
+            and at >= self.lease_expires_at
+        )
 
     def succeed(self, at: datetime) -> "TaskAttempt":
         if self.status is not TaskStatus.RUNNING or self.started_at is None:
@@ -148,6 +217,8 @@ class TaskAttempt:
             self,
             status=TaskStatus.SUCCEEDED,
             finished_at=at,
+            heartbeat_at=None,
+            lease_expires_at=None,
             error=None,
         )
 
@@ -162,5 +233,7 @@ class TaskAttempt:
             self,
             status=TaskStatus.FAILED,
             finished_at=at,
+            heartbeat_at=None,
+            lease_expires_at=None,
             error=error,
         )
