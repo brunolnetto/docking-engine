@@ -347,7 +347,7 @@ class DuckLakeTaskRepository:
             self._touch_coordination()
             attempt = self._require_attempt(attempt_id)
             if attempt.lease_expired(at):
-                expired = attempt.fail(at, "lease expired")
+                expired = attempt.fail(at, "lease expired", FailureKind.LEASE)
                 self._replace_attempt(expired)
                 raise _CommitThenRaise(
                     DomainValidationError("attempt lease has expired")

@@ -172,7 +172,7 @@ class InMemoryTaskRepository:
         with self._lock:
             attempt = self._require_attempt(attempt_id)
             if attempt.lease_expired(at):
-                expired = attempt.fail(at, "lease expired")
+                expired = attempt.fail(at, "lease expired", FailureKind.LEASE)
                 self._attempts[attempt_id] = expired
                 raise DomainValidationError("attempt lease has expired")
             updated = attempt.succeed(at)
