@@ -32,8 +32,16 @@ class ArtifactMetadata:
                 raise DomainValidationError(f"{field} must not be blank")
 
         if not _SHA256.fullmatch(self.sha256):
-            raise DomainValidationError("sha256 must contain exactly 64 hexadecimal characters")
-if isinstance(self.size_bytes, bool) or not isinstance(self.size_bytes, int) or self.size_bytes < 0:
-            raise DomainValidationError("size_bytes must be a non-negative integer")
+            raise DomainValidationError(
+                "sha256 must contain exactly 64 hexadecimal characters"
+            )
+        if (
+            isinstance(self.size_bytes, bool)
+            or not isinstance(self.size_bytes, int)
+            or self.size_bytes < 0
+        ):
+            raise DomainValidationError(
+                "size_bytes must be a non-negative integer"
+            )
 
         object.__setattr__(self, "sha256", self.sha256.lower())
