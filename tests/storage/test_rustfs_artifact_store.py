@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
+from threading import Barrier, Lock
 
 import pytest
 
@@ -194,3 +196,34 @@ def test_constructor_builds_path_style_sigv4_rustfs_client():
     assert store._client.meta.endpoint_url == "http://127.0.0.1:9000"
     assert store._client.meta.config.signature_version == "s3v4"
     assert store._client.meta.config.s3["addressing_style"] == "path"
+
+
+def test_concurrent_identical_writers_converge_without_conditional_put():
+    barrier = Barrier(2)
+    lock = Lock()
+
+    class RacingClient(FakeRustFSClient):
+        def __init__(self):
+            super().__init__()
+            self.initial_reads = 0
+
+        def get_object(self, *, Bucket, Key):
+            with lock:
+                self.initial_reads += 1
+                should_wait = self.initial_reads <= 2 and (Bucket, Key) not in self.objects
+            if should_wait:
+                barrier.wait(timeout=5)
+                raise ClientError("NoSuchKey")
+            return super().get_object(Bucket=Bucket, Key=Key)
+
+    client = RacingClient()
+    first = make_store(client)
+    second = make_store(client)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda store: store.put(b"same-content"), (first, second)))
+
+    assert results[0] == results[1]
+    assert len(client.objects) == 1
+    key = expected_key(b"same-content")
+    assert client.objects[("moldock", key)]["Body"] == b"same-content"
