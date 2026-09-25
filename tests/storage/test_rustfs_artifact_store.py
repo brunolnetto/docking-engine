@@ -182,3 +182,18 @@ def test_constructor_rejects_blank_bucket_and_unsafe_prefix():
             prefix="../escape",
             client=FakeRustFSClient(),
         )
+
+
+def test_constructor_builds_path_style_sigv4_rustfs_client():
+    store = RustFSArtifactStore(
+        bucket=" moldock ",
+        endpoint_url="http://127.0.0.1:9000",
+        access_key_id="access",
+        secret_access_key="secret",
+        region_name="us-east-1",
+    )
+
+    assert store._bucket == "moldock"
+    assert store._client.meta.endpoint_url == "http://127.0.0.1:9000"
+    assert store._client.meta.config.signature_version == "s3v4"
+    assert store._client.meta.config.s3["addressing_style"] == "path"
