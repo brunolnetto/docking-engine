@@ -168,7 +168,7 @@ def test_default_vina_runner_delegates_to_subprocess(monkeypatch):
 
     assert result.returncode == 0
     assert calls == [
-        (["vina", "--version"], Path("/tmp"), True, True, False)
+        (["vina", "--version"], Path("/tmp"), True, True, False, None)
     ]
 
 
@@ -204,3 +204,21 @@ def test_vina_backend_maps_subprocess_timeout_to_typed_backend_timeout():
         backend.execute(make_request())
 
     assert isinstance(error.value.__cause__, TimeoutExpired)
+
+
+def test_vina_backend_keeps_legacy_injected_runner_signature_without_timeout():
+    calls = []
+
+    class LegacyRunner:
+        def __call__(self, command, *, cwd):
+            calls.append((command, cwd))
+            out_path = Path(command[command.index("--out") + 1])
+            out_path.write_bytes(
+                b"MODEL 1\nREMARK VINA RESULT: -8.1 0.0 0.0\nENDMDL\n"
+            )
+            return CompletedProcess(command, 0, "ok", "")
+
+    backend = VinaBackend(runner=LegacyRunner())
+    backend.execute(make_request())
+
+    assert len(calls) == 1
