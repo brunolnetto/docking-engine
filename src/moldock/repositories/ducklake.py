@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from time import sleep
+import os
 
 try:
     import duckdb
@@ -67,8 +68,8 @@ class DuckLakeTaskRepository:
         self._initialize_schema()
 
     def _attach(self) -> None:
-        catalog = str(self._catalog_path).replace("'", "''")
-        data = str(self._data_path).replace("'", "''")
+        catalog = os.path.relpath(self._catalog_path, Path.cwd()).replace("'", "''")
+        data = os.path.relpath(self._data_path, Path.cwd()).replace("'", "''")
         self._connection.execute("INSTALL sqlite")
         self._connection.execute("INSTALL ducklake")
         self._connection.execute("LOAD sqlite")
@@ -129,6 +130,8 @@ class DuckLakeTaskRepository:
             WHERE coordination_key = 'task_repository'
             """
         ).fetchall()
+        if len(rows) > 1:
+            raise RuntimeError("DuckLake claim coordination row is duplicated")
         if not rows:
             self._connection.execute(
                 """
