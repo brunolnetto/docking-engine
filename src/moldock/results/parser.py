@@ -8,6 +8,7 @@ from moldock.domain import Pose, PoseRanking, PoseScore, ScoreKind
 
 
 _MODEL = re.compile(rb"^MODEL\s+(\d+)\s*$")
+_RESULT_PREFIX = b"REMARK VINA RESULT:"
 _RESULT = re.compile(
     rb"^REMARK VINA RESULT:\s+"
     rb"([-+]?\d+(?:\.\d+)?(?:[Ee][-+]?\d+)?)\s+"
@@ -46,21 +47,26 @@ class VinaResultParser:
         rankings: list[PoseRanking] = []
 
         for rank, (model_index, block) in enumerate(blocks, start=1):
-            matches = [
-                match
+            result_lines = [
+                line
                 for line in block.splitlines()
-                if (match := _RESULT.match(line)) is not None
+                if line.startswith(_RESULT_PREFIX)
             ]
-            if not matches:
+            if not result_lines:
                 raise VinaResultParseError(
                     f"MODEL {model_index} missing VINA RESULT"
                 )
-            if len(matches) > 1:
+            if len(result_lines) > 1:
                 raise VinaResultParseError(
                     f"MODEL {model_index} has multiple VINA RESULT records"
                 )
 
-            match = matches[0]
+            match = _RESULT.match(result_lines[0])
+            if match is None:
+                raise VinaResultParseError(
+                    f"MODEL {model_index} has invalid VINA RESULT"
+                )
+
             try:
                 affinity, rmsd_lb, rmsd_ub = (
                     float(match.group(index)) for index in (1, 2, 3)
