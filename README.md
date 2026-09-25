@@ -76,7 +76,7 @@ python -m pip install -e ".[ducklake]"
 ```python
 from datetime import timedelta
 
-backend = VinaBackend(
+from moldock.backends import VinaBackend
     execution_timeout=timedelta(minutes=30),
 )
 ```
