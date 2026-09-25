@@ -20,6 +20,9 @@ ducklake = [
     "duckdb>=1.5.5,<1.6",
     "pytz>=2024.1",
 ]
+rustfs = [
+    "boto3>=1.35,<2",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
