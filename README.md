@@ -4,31 +4,30 @@
 
 Domain-first foundations for a reproducible molecular docking execution system.
 
-This initial version intentionally has no RDKit, Vina, database, scheduler, or object-store dependency. The goal is to establish scientific and execution semantics before infrastructure is introduced.
+The project intentionally separates scientific identity, planning, execution, and infrastructure so docking backends can be added without defining the domain model around a particular CLI.
 
-## Domain model
+## Current architecture
+
+### Domain model
 
 - `DockingExperiment`: immutable scientific intent with content-addressed identity.
 - `DockingBox`: explicit docking search-space definition.
+- `PreparedReceptor`: reference to a receptor artifact produced by a known preparation recipe.
+- `PreparedLigand`: reference to a ligand artifact produced by a known preparation recipe.
 - `DockingTask`: one independently executable prepared receptor × prepared ligand unit.
 - `ExperimentRun`: one execution of an experiment.
 - `TaskAttempt`: retry-aware execution state machine.
 - `DockingPose`: immutable result metadata pointing to an external artifact.
 
-## Invariants
+### Planning
 
-The tests specify that:
+- `TaskPlanner`: pure expansion of an experiment plus prepared inputs into deterministic tasks.
+- `TaskManifest`: immutable, deterministically ordered execution contract.
+- duplicate prepared inputs are deduplicated only when their complete provenance is identical.
+- task-ID collisions with conflicting provenance are rejected.
+- completed task IDs can be filtered without mutating the manifest.
 
-1. Content IDs are deterministic and mapping-order independent.
-2. Search-space coordinates are finite and dimensions are finite and positive.
-3. Scientifically relevant experiment changes change the experiment ID.
-4. Experiments and nested experiment parameters are immutable.
-5. Task IDs are deterministic.
-6. Run completion cannot precede run start.
-7. Attempts transition `PENDING -> RUNNING -> SUCCEEDED|FAILED`.
-8. Attempt timestamps and errors must match the attempt status.
-9. Failed attempts require a non-blank error.
-10. Pose ranks start at 1.
+The planner performs no docking, storage, scheduling, or network I/O.
 
 ## Development
 
@@ -55,4 +54,4 @@ python -m pytest \
   --cov-report=html:htmlcov
 ```
 
-Coverage is configured in `pyproject.toml` with a **95% minimum**. CI runs the suite on Python 3.11 through 3.14, publishes the coverage table to the GitHub Actions job summary, and stores XML/HTML reports as build artifacts for 14 days.
+Coverage is configured in `pyproject.toml` with a **95% minimum**. CI runs the suite on Python 3.11 through 3.14 and stores XML/HTML reports as build artifacts.
