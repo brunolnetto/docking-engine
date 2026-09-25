@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Set
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
 from enum import Enum
 import hashlib
@@ -15,6 +15,13 @@ class DomainValidationError(ValueError):
 
 
 def deep_freeze(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return MappingProxyType(
+            {
+                field.name: deep_freeze(getattr(value, field.name))
+                for field in fields(value)
+            }
+        )
     if isinstance(value, Mapping):
         return MappingProxyType(
             {key: deep_freeze(item) for key, item in value.items()}

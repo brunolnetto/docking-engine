@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, dataclass
 
 import pytest
 
@@ -75,3 +75,25 @@ def test_protocol_is_frozen():
 def test_required_protocol_fields_reject_blank(field):
     with pytest.raises(DomainValidationError):
         make_protocol(**{field: " "})
+
+
+@dataclass
+class MutableSearchParameters:
+    weights: list[int]
+    enabled: bool = True
+
+
+def test_mutable_dataclass_parameter_is_snapshotted():
+    source = MutableSearchParameters(weights=[1, 2])
+    protocol = make_protocol(parameters={"search": source})
+    original_id = protocol.protocol_id
+
+    source.weights.append(3)
+    source.enabled = False
+
+    assert protocol.protocol_id == original_id
+    assert protocol.parameters["search"]["weights"] == (1, 2)
+    assert protocol.parameters["search"]["enabled"] is True
+
+    with pytest.raises(TypeError):
+        protocol.parameters["search"]["enabled"] = False
