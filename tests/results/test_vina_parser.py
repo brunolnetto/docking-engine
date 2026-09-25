@@ -15,14 +15,18 @@ ENDMDL
 """
 
 
-def test_parser_extracts_pose_score_ranking_and_rmsd():
-    parsed = VinaResultParser().parse(
+def parse(content=PDBQT):
+    return VinaResultParser().parse(
         task_id="task_1",
         attempt_id="attempt_1",
         source_artifact_id="artifact_1",
-        content=PDBQT,
+        content=content,
         method_version="1.2.7",
     )
+
+
+def test_parser_extracts_pose_score_ranking_and_rmsd():
+    parsed = parse()
 
     assert len(parsed.poses) == 2
     assert len(parsed.scores) == 2
@@ -44,25 +48,41 @@ def test_parser_extracts_pose_score_ranking_and_rmsd():
     assert parsed.rankings[1].rank == 2
 
 
-def test_geometry_identity_changes_when_model_geometry_changes():
-    parser = VinaResultParser()
-    first = parser.parse(
-        task_id="task_1",
-        attempt_id="attempt_1",
-        source_artifact_id="artifact_1",
-        content=PDBQT,
-        method_version="1.2.7",
+def test_geometry_identity_is_stable_when_only_score_and_rmsd_change():
+    first = parse()
+
+    rescored = PDBQT.replace(
+        b"REMARK VINA RESULT: -8.1 0.000 0.000",
+        b"REMARK VINA RESULT: -6.2 2.500 3.750",
+        1,
     )
+    second = parse(rescored)
+
+    assert first.poses[0].geometry_sha256 == second.poses[0].geometry_sha256
+    assert first.poses[0].pose_id == second.poses[0].pose_id
+    assert first.scores[0].value != second.scores[0].value
+
+
+def test_geometry_identity_ignores_non_geometry_model_annotations():
+    first = parse()
+
+    annotated = PDBQT.replace(
+        b"ATOM      1",
+        b"REMARK arbitrary annotation\nATOM      1",
+        1,
+    )
+    second = parse(annotated)
+
+    assert first.poses[0].geometry_sha256 == second.poses[0].geometry_sha256
+
+
+def test_geometry_identity_changes_when_atom_record_changes():
+    first = parse()
 
     changed = PDBQT.replace(b"       0.000   0.000", b"       9.000   0.000", 1)
-    second = parser.parse(
-        task_id="task_1",
-        attempt_id="attempt_1",
-        source_artifact_id="artifact_1",
-        content=changed,
-        method_version="1.2.7",
-    )
+    second = parse(changed)
 
+    assert first.poses[0].geometry_sha256 != second.poses[0].geometry_sha256
     assert first.poses[0].pose_id != second.poses[0].pose_id
 
 
@@ -88,10 +108,4 @@ def test_geometry_identity_changes_when_model_geometry_changes():
 )
 def test_parser_rejects_malformed_vina_output(content, message):
     with pytest.raises(VinaResultParseError, match=message):
-        VinaResultParser().parse(
-            task_id="task_1",
-            attempt_id="attempt_1",
-            source_artifact_id="artifact_1",
-            content=content,
-            method_version="1.2.7",
-        )
+        parse(content)

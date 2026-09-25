@@ -59,6 +59,20 @@ def test_pose_score_has_explicit_semantics():
     assert score.value == -8.7
 
 
+def test_pose_score_rejects_untyped_kind():
+    pose = make_pose()
+
+    with pytest.raises(DomainValidationError, match="ScoreKind"):
+        PoseScore(
+            pose_id=pose.pose_id,
+            kind="vina_affinity",
+            value=-8.7,
+            unit="kcal/mol",
+            method="vina",
+            method_version="1.2.x",
+        )
+
+
 def test_ranking_is_separate_from_pose_identity():
     pose = make_pose()
     ranking = PoseRanking(
