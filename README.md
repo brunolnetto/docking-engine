@@ -46,3 +46,24 @@ The execution runner depends only on repository protocols, so the lifecycle is i
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
+
+
+## DuckLake concurrency spike
+
+The DuckLake repository adapter uses a SQLite-backed DuckLake catalog and a
+single coordination row touched by every write transaction.
+
+This is intentional: DuckLake tables do not provide primary-key or unique
+constraints, so the spike proves cross-client correctness by forcing competing
+mutations through one optimistic transaction conflict point and retry loop.
+
+The result is a correctness-oriented multi-client repository, not a claim that
+DuckLake is a high-throughput task queue. Claim mutations are effectively
+serialized. A later production adapter may move the coordination/control plane
+to PostgreSQL while retaining DuckLake for lakehouse-oriented durable data.
+
+Install the optional dependency with:
+
+```bash
+python -m pip install -e ".[ducklake]"
+```
