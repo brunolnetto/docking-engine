@@ -10,6 +10,9 @@ from moldock.domain import (
 )
 
 
+BOX = DockingBox(1, 2, 3, 20, 21, 22)
+
+
 def make_task() -> DockingTask:
     return DockingTask(
         experiment_id="exp_1",
@@ -17,7 +20,7 @@ def make_task() -> DockingTask:
         ligand_id="lig_1",
         prepared_receptor_id="prepared_rec_1",
         prepared_ligand_id="prepared_lig_1",
-        search_space_id="space_1",
+        search_space_id=BOX.search_space_id,
     )
 
 
@@ -26,7 +29,7 @@ def make_request(**overrides) -> DockingExecutionRequest:
         task=make_task(),
         receptor_pdbqt=b"RECEPTOR",
         ligand_pdbqt=b"LIGAND",
-        search_space=DockingBox(1, 2, 3, 20, 21, 22),
+        search_space=BOX,
         parameters={"exhaustiveness": 8, "seed": 42},
     )
     values.update(overrides)
@@ -41,6 +44,26 @@ def test_request_snapshots_parameters():
 
     assert request.parameters["exhaustiveness"] == 8
     assert isinstance(request.parameters, MappingProxyType)
+
+
+def test_request_deep_freezes_nested_parameters():
+    source = {
+        "search": {
+            "weights": [1.0, 2.0],
+            "options": {"local_only": False},
+        }
+    }
+    request = make_request(parameters=source)
+
+    source["search"]["weights"].append(3.0)
+    source["search"]["options"]["local_only"] = True
+
+    assert request.parameters["search"]["weights"] == (1.0, 2.0)
+    assert request.parameters["search"]["options"]["local_only"] is False
+    assert isinstance(request.parameters["search"], MappingProxyType)
+
+    with pytest.raises(TypeError):
+        request.parameters["search"]["options"]["local_only"] = True
 
 
 @pytest.mark.parametrize("field", ["receptor_pdbqt", "ligand_pdbqt"])

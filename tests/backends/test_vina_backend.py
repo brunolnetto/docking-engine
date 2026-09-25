@@ -119,6 +119,19 @@ def test_vina_backend_failure_includes_process_diagnostics():
         backend.execute(make_request())
 
 
+def test_vina_backend_wraps_launch_errors():
+    class MissingExecutableRunner:
+        def __call__(self, command, *, cwd):
+            raise FileNotFoundError("vina executable not found")
+
+    backend = VinaBackend(runner=MissingExecutableRunner())
+
+    with pytest.raises(DockingBackendError, match="failed to launch Vina") as error:
+        backend.execute(make_request())
+
+    assert isinstance(error.value.__cause__, FileNotFoundError)
+
+
 def test_vina_backend_requires_output_file():
     class NoOutputRunner:
         def __call__(self, command, *, cwd):
