@@ -6,11 +6,26 @@ from datetime import datetime
 from enum import Enum
 import hashlib
 import json
+from types import MappingProxyType
 from typing import Any
 
 
 class DomainValidationError(ValueError):
     pass
+
+
+def deep_freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: deep_freeze(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(deep_freeze(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(deep_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(deep_freeze(item) for item in value)
+    return value
 
 
 def _canonicalize(value: Any) -> Any:

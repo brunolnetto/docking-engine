@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Mapping
 
-from .common import DomainValidationError
+from .common import DomainValidationError, deep_freeze
 from .search_space import DockingBox
 from .task import DockingTask
 
@@ -24,8 +23,8 @@ class DockingExecutionRequest:
             raise DomainValidationError("ligand_pdbqt must be bytes")
         if self.search_space.search_space_id != self.task.search_space_id:
             raise DomainValidationError("search space does not match task")
-        object.__setattr__(
-            self,
-            "parameters",
-            MappingProxyType(dict(self.parameters)),
-        )
+
+        frozen_parameters = deep_freeze(self.parameters)
+        if not isinstance(frozen_parameters, Mapping):
+            raise DomainValidationError("parameters must be a mapping")
+        object.__setattr__(self, "parameters", frozen_parameters)

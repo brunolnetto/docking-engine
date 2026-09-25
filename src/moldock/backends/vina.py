@@ -89,7 +89,11 @@ class VinaBackend:
                 if name in request.parameters:
                     command.extend([flag, str(request.parameters[name])])
 
-            process = self._runner(command, cwd=cwd)
+            try:
+                process = self._runner(command, cwd=cwd)
+            except OSError as exc:
+                raise DockingBackendError(f"failed to launch Vina: {exc}") from exc
+
             if process.returncode != 0:
                 diagnostics = process.stderr or process.stdout or "no diagnostics"
                 raise DockingBackendError(
@@ -97,7 +101,9 @@ class VinaBackend:
                 )
 
             if not output.exists():
-                raise DockingBackendError("Vina did not produce the requested output file")
+                raise DockingBackendError(
+                    "Vina did not produce the requested output file"
+                )
 
             return DockingResult(
                 artifacts=(
