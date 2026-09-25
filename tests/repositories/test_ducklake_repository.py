@@ -275,4 +275,5 @@ def test_deferred_expiry_commit_conflict_is_retried_before_domain_error(tmp_path
     assert wrapped.conflicts == 1
     history = repo.attempts_for(task.task_id, "run_1")
     assert history[-1].status is TaskStatus.FAILED
+    assert history[-1].failure_kind is FailureKind.LEASE
     assert history[-1].error == "lease expired"

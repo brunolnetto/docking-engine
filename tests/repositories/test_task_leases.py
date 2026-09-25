@@ -204,6 +204,7 @@ def test_expired_heartbeat_marks_attempt_failed():
 
     history = repo.attempts_for(attempt.task_id, "run_1")
     assert history[-1].status is TaskStatus.FAILED
+    assert history[-1].failure_kind is FailureKind.LEASE
     assert history[-1].error == "lease expired"
 
 

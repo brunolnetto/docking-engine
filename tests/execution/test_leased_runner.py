@@ -255,6 +255,7 @@ def test_finalization_lease_expiry_returns_durable_failed_attempt():
 
     assert result is not None
     assert result.status is TaskStatus.FAILED
+    assert result.failure_kind is FailureKind.LEASE
     assert result.error == "lease expired"
 
 
