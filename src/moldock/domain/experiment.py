@@ -1,22 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Mapping
 
-from .common import DomainValidationError, content_id
-
-
-def _deep_freeze(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
-    if isinstance(value, list):
-        return tuple(_deep_freeze(item) for item in value)
-    if isinstance(value, tuple):
-        return tuple(_deep_freeze(item) for item in value)
-    if isinstance(value, set):
-        return frozenset(_deep_freeze(item) for item in value)
-    return value
+from .common import DomainValidationError, content_id, deep_freeze
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +33,7 @@ class DockingExperiment:
                 f"required fields must not be blank: {', '.join(blank)}"
             )
 
-        object.__setattr__(self, "parameters", _deep_freeze(self.parameters))
+        object.__setattr__(self, "parameters", deep_freeze(self.parameters))
 
     @property
     def experiment_id(self) -> str:
