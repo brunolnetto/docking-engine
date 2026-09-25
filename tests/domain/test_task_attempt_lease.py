@@ -32,6 +32,11 @@ def test_running_attempt_requires_lease_timestamps():
         make_running(lease_expires_at=None)
 
 
+def test_heartbeat_cannot_precede_start():
+    with pytest.raises(DomainValidationError):
+        make_running(heartbeat_at=T0 - timedelta(seconds=1))
+
+
 def test_lease_must_not_precede_heartbeat():
     with pytest.raises(DomainValidationError):
         make_running(
@@ -52,6 +57,24 @@ def test_heartbeat_extends_lease():
     assert updated.lease_expires_at == T0 + timedelta(minutes=12)
 
 
+def test_heartbeat_only_applies_to_running_attempts():
+    pending = TaskAttempt(
+        attempt_id="attempt_1",
+        task_id="task_1",
+        run_id="run_1",
+        attempt_number=1,
+        worker_id="worker_1",
+    )
+
+    with pytest.raises(DomainValidationError):
+        pending.heartbeat(at=T0, lease_duration=timedelta(minutes=5))
+
+
+def test_heartbeat_rejects_non_positive_duration():
+    with pytest.raises(DomainValidationError):
+        make_running().heartbeat(at=T0, lease_duration=timedelta(0))
+
+
 def test_heartbeat_must_be_monotonic():
     attempt = make_running()
 
@@ -60,6 +83,19 @@ def test_heartbeat_must_be_monotonic():
             at=T0 - timedelta(seconds=1),
             lease_duration=timedelta(minutes=5),
         )
+
+
+def test_lease_expiry_boundary_is_inclusive():
+    attempt = make_running()
+
+    assert not attempt.lease_expired(T0 + timedelta(minutes=4, seconds=59))
+    assert attempt.lease_expired(T0 + timedelta(minutes=5))
+
+
+def test_terminal_attempts_are_not_lease_expired():
+    attempt = make_running().succeed(T0 + timedelta(minutes=1))
+
+    assert not attempt.lease_expired(T0 + timedelta(hours=1))
 
 
 def test_terminal_attempts_clear_lease_state():

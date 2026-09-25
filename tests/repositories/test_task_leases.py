@@ -20,6 +20,36 @@ def make_task():
     )
 
 
+def test_repository_rejects_non_positive_default_lease():
+    with pytest.raises(DomainValidationError):
+        InMemoryTaskRepository(default_lease_duration=timedelta(0))
+
+
+def test_claim_rejects_blank_run_and_worker_ids():
+    repo = InMemoryTaskRepository()
+    repo.register(make_task())
+
+    with pytest.raises(DomainValidationError):
+        repo.claim_next("exp_1", " ", "worker_1", T0)
+
+    with pytest.raises(DomainValidationError):
+        repo.claim_next("exp_1", "run_1", " ", T0)
+
+
+def test_claim_rejects_explicit_zero_duration():
+    repo = InMemoryTaskRepository()
+    repo.register(make_task())
+
+    with pytest.raises(DomainValidationError):
+        repo.claim_next(
+            "exp_1",
+            "run_1",
+            "worker_1",
+            T0,
+            lease_duration=timedelta(0),
+        )
+
+
 def test_claim_assigns_lease():
     repo = InMemoryTaskRepository()
     task = make_task()
@@ -117,6 +147,21 @@ def test_heartbeat_extends_repository_lease():
     ) is None
 
 
+def test_heartbeat_rejects_explicit_zero_duration():
+    repo = InMemoryTaskRepository()
+    repo.register(make_task())
+    attempt = repo.claim_next("exp_1", "run_1", "worker_1", T0)
+    assert attempt is not None
+
+    with pytest.raises(DomainValidationError):
+        repo.heartbeat(
+            attempt.attempt_id,
+            worker_id="worker_1",
+            at=T0 + timedelta(seconds=1),
+            lease_duration=timedelta(0),
+        )
+
+
 def test_heartbeat_rejects_wrong_worker():
     repo = InMemoryTaskRepository()
     repo.register(make_task())
@@ -136,6 +181,49 @@ def test_heartbeat_rejects_wrong_worker():
             at=T0 + timedelta(minutes=1),
             lease_duration=timedelta(minutes=5),
         )
+
+
+def test_expired_heartbeat_marks_attempt_failed():
+    repo = InMemoryTaskRepository()
+    repo.register(make_task())
+    attempt = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        lease_duration=timedelta(minutes=1),
+    )
+    assert attempt is not None
+
+    with pytest.raises(DomainValidationError, match="expired"):
+        repo.heartbeat(
+            attempt.attempt_id,
+            worker_id="worker_1",
+            at=T0 + timedelta(minutes=2),
+        )
+
+    history = repo.attempts_for(attempt.task_id, "run_1")
+    assert history[-1].status is TaskStatus.FAILED
+    assert history[-1].error == "lease expired"
+
+
+def test_succeed_rejects_expired_lease_and_marks_failed():
+    repo = InMemoryTaskRepository()
+    repo.register(make_task())
+    attempt = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        lease_duration=timedelta(minutes=1),
+    )
+    assert attempt is not None
+
+    with pytest.raises(DomainValidationError, match="expired"):
+        repo.succeed(attempt.attempt_id, T0 + timedelta(minutes=2))
+
+    history = repo.attempts_for(attempt.task_id, "run_1")
+    assert history[-1].status is TaskStatus.FAILED
 
 
 def test_retry_policy_stops_after_max_attempts():
