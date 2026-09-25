@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -11,7 +12,7 @@ from moldock.domain import (
     DockingResult,
 )
 
-from .base import DockingBackendError
+from .base import DockingBackendError, DockingBackendTimeoutError
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -26,13 +27,19 @@ _SUPPORTED_PARAMETERS = {
 }
 
 
-def _default_runner(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+def _default_runner(
+    command: list[str],
+    *,
+    cwd: Path,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
         cwd=cwd,
         capture_output=True,
         text=True,
         check=False,
+        timeout=timeout,
     )
 
 
@@ -42,9 +49,13 @@ class VinaBackend:
         *,
         executable: str = "vina",
         runner: Runner | None = None,
+        execution_timeout: timedelta | None = None,
     ) -> None:
+        if execution_timeout is not None and execution_timeout <= timedelta(0):
+            raise ValueError("execution_timeout must be > 0")
         self._executable = executable
         self._runner = runner or _default_runner
+        self._execution_timeout = execution_timeout
 
     def execute(self, request: DockingExecutionRequest) -> DockingResult:
         unsupported = sorted(set(request.parameters) - set(_SUPPORTED_PARAMETERS))
@@ -90,7 +101,21 @@ class VinaBackend:
                     command.extend([flag, str(request.parameters[name])])
 
             try:
-                process = self._runner(command, cwd=cwd)
+                timeout = (
+                    self._execution_timeout.total_seconds()
+                    if self._execution_timeout is not None
+                    else None
+                )
+                process = self._runner(command, cwd=cwd, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                duration = (
+                    f" after {exc.timeout:g} seconds"
+                    if exc.timeout is not None
+                    else ""
+                )
+                raise DockingBackendTimeoutError(
+                    f"Vina execution timed out{duration}"
+                ) from exc
             except OSError as exc:
                 raise DockingBackendError(f"failed to launch Vina: {exc}") from exc
 
