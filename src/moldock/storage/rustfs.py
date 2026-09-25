@@ -54,7 +54,7 @@ class RustFSArtifactStore:
                 region_name=region_name,
             )
 
-        self._bucket = bucket
+        self._bucket = bucket.strip()
         self._prefix = normalized_prefix
         self._client = client
 
