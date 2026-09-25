@@ -328,3 +328,32 @@ def test_heartbeat_start_failure_finalizes_claimed_attempt_and_stops_controller(
     assert executor.calls == []
     history = repo.attempts_for(task.task_id, "run_1")
     assert history == (result,)
+
+
+def test_heartbeat_factory_failure_finalizes_claimed_attempt():
+    class FailingHeartbeatFactory:
+        def __call__(self, **kwargs):
+            raise RuntimeError("heartbeat resource unavailable")
+
+    repo = InMemoryTaskRepository(
+        default_lease_duration=timedelta(minutes=5),
+    )
+    task = make_task()
+    repo.register(task)
+    executor = RecordingExecutor()
+    runner = LeasedWorkerRunner(
+        task_repository=repo,
+        executor=executor,
+        clock=lambda: T0,
+        lease_duration=timedelta(minutes=5),
+        heartbeat_interval=timedelta(minutes=1),
+        heartbeat_factory=FailingHeartbeatFactory(),
+    )
+
+    result = runner.run_once("exp_1", "run_1", "worker_1")
+
+    assert result is not None
+    assert result.status is TaskStatus.FAILED
+    assert "heartbeat resource unavailable" in result.error
+    assert executor.calls == []
+    assert repo.attempts_for(task.task_id, "run_1") == (result,)
