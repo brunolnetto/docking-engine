@@ -26,6 +26,11 @@ def test_manifest_orders_tasks_deterministically():
     assert left.manifest_id == right.manifest_id
 
 
+def test_manifest_rejects_blank_experiment_id():
+    with pytest.raises(DomainValidationError):
+        TaskManifest(" ", ())
+
+
 def test_manifest_rejects_task_from_another_experiment():
     task = DockingTask(
         experiment_id="other",
