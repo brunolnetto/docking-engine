@@ -297,9 +297,6 @@ class DuckLakeTaskRepository:
                 ):
                     continue
 
-                if self._before_claim_write is not None:
-                    self._before_claim_write()
-
                 self._touch_coordination()
                 attempt = TaskAttempt(
                     attempt_id=content_id(
@@ -323,6 +320,8 @@ class DuckLakeTaskRepository:
                 return attempt
             return None
 
+        if self._before_claim_write is not None:
+            self._before_claim_write()
         return self._run_write(operation)
 
     def heartbeat(
