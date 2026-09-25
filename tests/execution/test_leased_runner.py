@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from threading import Event, Thread
 
-from moldock.domain import DockingTask, TaskStatus
+import pytest
+
+from moldock.domain import DockingTask, DomainValidationError, TaskStatus
 from moldock.execution import LeasedWorkerRunner
 from moldock.repositories import InMemoryTaskRepository
 
@@ -152,3 +155,154 @@ def test_stop_during_execution_does_not_cancel_active_attempt():
     assert attempt is not None
     assert attempt.status is TaskStatus.SUCCEEDED
     assert runner.stopped
+
+
+class MutableClock:
+    def __init__(self, now):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+def test_runner_finalizes_only_the_attempt_it_claimed_after_retry_is_created():
+    clock = MutableClock(T0)
+    repo = InMemoryTaskRepository(
+        default_lease_duration=timedelta(minutes=1),
+    )
+    task = make_task()
+    repo.register(task)
+    heartbeat = RecordingHeartbeat()
+    factory = HeartbeatFactory(heartbeat)
+    retry_box = {}
+
+    def expire_and_reclaim():
+        clock.now = T0 + timedelta(minutes=2)
+        retry_box["attempt"] = repo.claim_next(
+            experiment_id="exp_1",
+            run_id="run_1",
+            worker_id="worker_2",
+            at=clock(),
+            lease_duration=timedelta(minutes=5),
+        )
+
+    runner = LeasedWorkerRunner(
+        task_repository=repo,
+        executor=RecordingExecutor(on_execute=expire_and_reclaim),
+        clock=clock,
+        lease_duration=timedelta(minutes=1),
+        heartbeat_interval=timedelta(seconds=30),
+        heartbeat_factory=factory,
+    )
+
+    result = runner.run_once("exp_1", "run_1", "worker_1")
+
+    history = repo.attempts_for(task.task_id, "run_1")
+    assert len(history) == 2
+    assert result is not None
+    assert result.attempt_id == history[0].attempt_id
+    assert result.status is TaskStatus.FAILED
+    assert retry_box["attempt"].attempt_id == history[1].attempt_id
+    assert history[1].status is TaskStatus.RUNNING
+
+
+@pytest.mark.parametrize(
+    ("lease_duration", "heartbeat_interval"),
+    [
+        (timedelta(seconds=30), timedelta(minutes=1)),
+        (timedelta(minutes=1), timedelta(minutes=1)),
+        (timedelta(minutes=1), timedelta(0)),
+    ],
+)
+def test_invalid_heartbeat_timing_is_rejected_before_any_claim(
+    lease_duration,
+    heartbeat_interval,
+):
+    repo = InMemoryTaskRepository()
+    task = make_task()
+    repo.register(task)
+
+    with pytest.raises(DomainValidationError):
+        LeasedWorkerRunner(
+            task_repository=repo,
+            executor=RecordingExecutor(),
+            clock=lambda: T0,
+            lease_duration=lease_duration,
+            heartbeat_interval=heartbeat_interval,
+        )
+
+    assert repo.attempts_for(task.task_id, "run_1") == ()
+
+
+def test_finalization_lease_expiry_returns_durable_failed_attempt():
+    times = iter((T0, T0 + timedelta(minutes=2)))
+    repo = InMemoryTaskRepository(
+        default_lease_duration=timedelta(minutes=1),
+    )
+    task = make_task()
+    repo.register(task)
+    runner = LeasedWorkerRunner(
+        task_repository=repo,
+        executor=RecordingExecutor(),
+        clock=lambda: next(times),
+        lease_duration=timedelta(minutes=1),
+        heartbeat_interval=timedelta(seconds=30),
+        heartbeat_factory=HeartbeatFactory(RecordingHeartbeat()),
+    )
+
+    result = runner.run_once("exp_1", "run_1", "worker_1")
+
+    assert result is not None
+    assert result.status is TaskStatus.FAILED
+    assert result.error == "lease expired"
+
+
+def test_stop_is_serialized_with_claim():
+    entered_claim = Event()
+    allow_claim = Event()
+
+    class BlockingRepository:
+        def __init__(self):
+            self.inner = InMemoryTaskRepository()
+            self.task = make_task()
+            self.inner.register(self.task)
+
+        def claim_next(self, **kwargs):
+            entered_claim.set()
+            allow_claim.wait(timeout=2)
+            return self.inner.claim_next(**kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    repo = BlockingRepository()
+    runner = LeasedWorkerRunner(
+        task_repository=repo,
+        executor=RecordingExecutor(),
+        clock=lambda: T0,
+        heartbeat_factory=HeartbeatFactory(RecordingHeartbeat()),
+    )
+    result_box = {}
+
+    run_thread = Thread(
+        target=lambda: result_box.setdefault(
+            "attempt",
+            runner.run_once("exp_1", "run_1", "worker_1"),
+        )
+    )
+    run_thread.start()
+    assert entered_claim.wait(timeout=2)
+
+    stop_returned = Event()
+    stop_thread = Thread(target=lambda: (runner.stop(), stop_returned.set()))
+    stop_thread.start()
+
+    assert not stop_returned.wait(timeout=0.05)
+    allow_claim.set()
+    run_thread.join(timeout=2)
+    stop_thread.join(timeout=2)
+
+    assert stop_returned.is_set()
+    assert runner.stopped
+    assert result_box["attempt"] is not None
+    assert runner.run_once("exp_1", "run_1", "worker_2") is None
