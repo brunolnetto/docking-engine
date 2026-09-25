@@ -390,9 +390,12 @@ class DuckLakeTaskRepository:
     def _run_write(self, operation):
         last_error: Exception | None = None
         for attempt_number in range(self._max_transaction_retries):
-            self._connection.execute("BEGIN TRANSACTION")
             deferred_error: Exception | None = None
+            transaction_started = False
             try:
+                self._connection.execute("BEGIN TRANSACTION")
+                transaction_started = True
+
                 try:
                     result = operation()
                 except _CommitThenRaise as deferred:
@@ -400,24 +403,40 @@ class DuckLakeTaskRepository:
                     deferred_error = deferred.error
 
                 self._connection.execute("COMMIT")
+                transaction_started = False
+
                 if deferred_error is not None:
                     raise deferred_error
                 return result
             except Exception as exc:
-                try:
-                    self._connection.execute("ROLLBACK")
-                except Exception:
-                    pass
+                if transaction_started:
+                    try:
+                        self._connection.execute("ROLLBACK")
+                    except Exception:
+                        pass
+
                 if deferred_error is not None and exc is deferred_error:
                     raise
                 if not self._is_transaction_conflict(exc):
                     raise
+
                 last_error = exc
                 if attempt_number + 1 < self._max_transaction_retries:
+                    self._reconnect()
                     sleep(self._retry_delay_seconds)
+
         raise RuntimeError(
             "DuckLake transaction retry budget exhausted"
         ) from last_error
+
+    def _reconnect(self) -> None:
+        if self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._connection = None
+        self._attach()
 
     def _touch_coordination(self) -> None:
         self._connection.execute(
