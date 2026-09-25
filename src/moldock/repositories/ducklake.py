@@ -5,7 +5,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from time import sleep
 
-import duckdb
+try:
+    import duckdb
+except ImportError:  # pragma: no cover - exercised only without optional dependency
+    duckdb = None
 
 from moldock.domain import (
     DockingTask,
@@ -39,6 +42,10 @@ class DuckLakeTaskRepository:
         retry_delay_seconds: float = 0.01,
         before_claim_write: BeforeClaimWrite | None = None,
     ) -> None:
+        if duckdb is None:
+            raise RuntimeError(
+                'DuckLakeTaskRepository requires the "ducklake" optional dependency'
+            )
         if default_lease_duration <= timedelta(0):
             raise DomainValidationError("default_lease_duration must be > 0")
         if max_transaction_retries < 1:
