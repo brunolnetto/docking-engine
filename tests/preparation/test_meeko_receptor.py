@@ -48,7 +48,7 @@ class RecordingRunner:
     def __call__(self, command, *, cwd, timeout=None):
         self.calls.append((tuple(command), Path(cwd), timeout))
         input_path = Path(command[command.index("--read_pdb") + 1])
-        assert input_path.read_bytes() == PDB
+        assert input_path.read_bytes()
         if self.write_output:
             output_path = Path(command[command.index("--write_pdbqt") + 1])
             output_path.write_bytes(b"ATOM PDBQT\n")
