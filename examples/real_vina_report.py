@@ -30,6 +30,8 @@ from moldock.reporting import (
 )
 from moldock.results import (
     DuckLakeScientificResultRepository,
+    PoseInteractionAnalyzer,
+    PreparedReceptorResolver,
     VinaResultInterpreter,
 )
 from moldock.storage import FilesystemArtifactStore
@@ -183,10 +185,19 @@ def main() -> int:
     )
 
     try:
+        interaction_analyzer = PoseInteractionAnalyzer(
+            repository=science,
+            receptor_resolver=PreparedReceptorResolver(
+                task_repository=tasks,
+                prepared_inputs=prepared,
+                artifact_store=artifact_store,
+            ),
+        )
         interpreter = VinaResultInterpreter(
             artifact_store=artifact_store,
             repository=science,
             method_version=VINA_VERSION,
+            interaction_analyzer=interaction_analyzer,
         )
         pipeline = OfflineDockingPipeline(
             receptor_preparer=MeekoReceptorPreparer(
