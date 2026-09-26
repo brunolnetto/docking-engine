@@ -1,6 +1,7 @@
 from .builder import PipelineReportBuilder
 from .model import (
     ClusterObservation,
+    InteractionObservation,
     MetricObservation,
     PipelineReport,
     RankingObservation,
@@ -24,6 +25,7 @@ from .renderers import (
 __all__ = [
     "JsonPipelineReporter",
     "MarkdownPipelineReporter",
+    "InteractionObservation",
     "MetricObservation",
     "ClusterObservation",
     "PipelineReport",
