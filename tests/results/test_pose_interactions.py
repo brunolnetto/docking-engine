@@ -49,10 +49,23 @@ def receptor() -> bytes:
     )
 
 
-def ligand(acceptor_y: float = 0.0) -> bytes:
+def ligand(
+    acceptor_x: float = 2.2,
+    acceptor_y: float = 0.0,
+) -> bytes:
     return (
         b"MODEL 1\n"
-        + atom(1, "O1", "LIG", "L", 1, 2.2, acceptor_y, 0.0, "OA")
+        + atom(
+            1,
+            "O1",
+            "LIG",
+            "L",
+            1,
+            acceptor_x,
+            acceptor_y,
+            0.0,
+            "OA",
+        )
         + atom(2, "C1", "LIG", "L", 1, 3.0, 3.0, 0.0, "C")
         + b"ENDMDL\n"
     )
@@ -95,7 +108,7 @@ def test_hydrogen_bond_requires_directional_geometry():
     PoseInteractionAnalyzer(repository=repo).analyze(
         attempt_id="attempt_1",
         receptor_pdbqt=receptor(),
-        pose_pdbqt=ligand(acceptor_y=2.0),
+        pose_pdbqt=ligand(acceptor_x=1.0, acceptor_y=2.0),
     )
 
     hbonds = [
@@ -148,4 +161,83 @@ def test_interaction_parser_rejects_missing_models():
     with pytest.raises(DomainValidationError, match="MODEL"):
         PdbqtInteractionParser().parse_models(
             atom(1, "C", "LIG", "L", 1, 0, 0, 0, "C")
+        )
+
+
+def test_ligand_donor_can_hydrogen_bond_to_receptor_acceptor():
+    repo = InMemoryScientificResultRepository()
+    persisted = pose()
+    repo.register_pose(persisted)
+    receptor_acceptor = atom(
+        1, "OD1", "ASP", "A", 25, 2.2, 0.0, 0.0, "OA"
+    )
+    ligand_donor = (
+        b"MODEL 1\n"
+        + atom(1, "N1", "LIG", "L", 1, 0.0, 0.0, 0.0, "N")
+        + atom(2, "H1", "LIG", "L", 1, 1.0, 0.0, 0.0, "HD")
+        + b"ENDMDL\n"
+    )
+
+    PoseInteractionAnalyzer(repository=repo).analyze(
+        attempt_id="attempt_1",
+        receptor_pdbqt=receptor_acceptor,
+        pose_pdbqt=ligand_donor,
+    )
+
+    hbonds = [
+        item
+        for item in repo.list_interactions_for_pose(persisted.pose_id)
+        if item.kind is PoseInteractionKind.HYDROGEN_BOND
+    ]
+    assert len(hbonds) == 1
+    assert hbonds[0].residue_label == "A:ASP25"
+    assert hbonds[0].metadata["donor_side"] == "ligand"
+
+
+def test_interaction_analyzer_rejects_pose_model_mismatch():
+    repo = InMemoryScientificResultRepository()
+    persisted = pose()
+    repo.register_pose(persisted)
+    wrong_model = ligand().replace(b"MODEL 1", b"MODEL 2")
+
+    with pytest.raises(DomainValidationError, match="does not match"):
+        PoseInteractionAnalyzer(repository=repo).analyze(
+            attempt_id="attempt_1",
+            receptor_pdbqt=receptor(),
+            pose_pdbqt=wrong_model,
+        )
+
+
+def test_interaction_parser_rejects_empty_single_structure():
+    with pytest.raises(DomainValidationError, match="no atoms"):
+        PdbqtInteractionParser().parse_single(b"REMARK no coordinates\n")
+
+
+def test_interaction_parser_rejects_unterminated_model():
+    with pytest.raises(DomainValidationError, match="unterminated MODEL"):
+        PdbqtInteractionParser().parse_models(
+            b"MODEL 1\n"
+            + atom(1, "C", "LIG", "L", 1, 0, 0, 0, "C")
+        )
+
+
+def test_interaction_parser_rejects_empty_model():
+    with pytest.raises(DomainValidationError, match="has no atoms"):
+        PdbqtInteractionParser().parse_models(
+            b"MODEL 1\nREMARK empty\nENDMDL\n"
+        )
+
+
+def test_interaction_parser_rejects_invalid_atom_record():
+    malformed = b"ATOM      X  BAD\n"
+
+    with pytest.raises(DomainValidationError, match="invalid PDBQT atom"):
+        PdbqtInteractionParser().parse_single(malformed)
+
+
+def test_interaction_analyzer_rejects_invalid_angle_cutoff():
+    with pytest.raises(DomainValidationError, match="angle cutoff"):
+        PoseInteractionAnalyzer(
+            repository=InMemoryScientificResultRepository(),
+            hydrogen_bond_angle_degrees=181,
         )
