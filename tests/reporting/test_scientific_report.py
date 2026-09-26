@@ -3,6 +3,7 @@ import pytest
 from moldock.domain import FailureKind, TaskStatus
 from moldock.reporting import (
     ClusterObservation,
+    InteractionObservation,
     MetricObservation,
     PipelineReport,
     RankingObservation,
@@ -45,6 +46,7 @@ def _successful_report():
         poses.append(pose_id)
     metrics = []
     clusters = []
+    interactions = []
     rmsds = (0.0, 1.7, 12.4, 12.2, 2.1)
     cluster_ids = ("c1", "c1", "c2", "c3", "c4")
     for rank, pose_id in enumerate(poses, start=1):
@@ -79,6 +81,53 @@ def _successful_report():
                 method_version="1",
             )
         )
+        if rank in (1, 2):
+            interactions.append(
+                InteractionObservation(
+                    interaction_id=f"contact_{rank}",
+                    pose_id=pose_id,
+                    kind="contact",
+                    receptor_chain_id="A",
+                    receptor_residue_name="THR",
+                    receptor_residue_number="315",
+                    receptor_atom_name="OG1",
+                    ligand_atom_name="N1",
+                    distance_angstrom=3.0,
+                    method="pdbqt_geometric_interactions",
+                    method_version="1",
+                )
+            )
+        if rank == 1:
+            interactions.extend(
+                [
+                    InteractionObservation(
+                        interaction_id="hbond_1",
+                        pose_id=pose_id,
+                        kind="hydrogen_bond",
+                        receptor_chain_id="A",
+                        receptor_residue_name="THR",
+                        receptor_residue_number="315",
+                        receptor_atom_name="OG1",
+                        ligand_atom_name="N1",
+                        distance_angstrom=2.9,
+                        method="pdbqt_geometric_interactions",
+                        method_version="1",
+                    ),
+                    InteractionObservation(
+                        interaction_id="hydrophobic_1",
+                        pose_id=pose_id,
+                        kind="hydrophobic",
+                        receptor_chain_id="A",
+                        receptor_residue_name="PHE",
+                        receptor_residue_number="317",
+                        receptor_atom_name="CZ",
+                        ligand_atom_name="C1",
+                        distance_angstrom=3.7,
+                        method="pdbqt_geometric_interactions",
+                        method_version="1",
+                    ),
+                ]
+            )
     task = TaskPipelineReport(
         task_id="task_1",
         ligand_id="STI",
@@ -92,6 +141,7 @@ def _successful_report():
         scores=tuple(scores),
         rankings=tuple(rankings),
         metrics=tuple(metrics),
+        interactions=tuple(interactions),
         clusters=tuple(clusters),
     )
     return PipelineReport(
@@ -133,6 +183,16 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert any("4 RMSD cluster" in item for item in report.narrative.interpretation)
     assert "shares its 2.0 Å RMSD cluster" in report.narrative.conclusion
     assert "substantial structural diversity" in report.narrative.conclusion
+    assert dict(report.poses[0].interaction_counts)["hydrogen_bond"] == 1
+    assert report.poses[0].hydrogen_bond_residues == ("A:THR315",)
+    assert any(
+        "interaction profile contained" in item
+        for item in report.narrative.interpretation
+    )
+    assert any(
+        "every pose in the rank-1 RMSD cluster" in item
+        for item in report.narrative.interpretation
+    )
 
 
 def test_scientific_report_limits_interpretation_for_failed_experiment():
