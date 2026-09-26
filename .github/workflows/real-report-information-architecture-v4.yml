@@ -1,0 +1,53 @@
+name: Real Report Information Architecture V4
+
+on:
+  push:
+    branches:
+      - automation/real-report-information-architecture-v4
+
+permissions:
+  contents: read
+
+jobs:
+  real-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Generate final redesigned real report
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/report-ia-v4 \
+            --run-id 1iep-report-ia-v4 \
+            --pdf
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path(".moldock/report-ia-v4/reports")
+          payload = json.loads((root / "1iep-report-ia-v4.json").read_text())
+          config = payload["configuration"]
+          assert config["docking_protocol"]["parameters"]["seed"] == 42
+          assert config["analysis_protocol"]["clustering"]["threshold_angstrom"] == 2.0
+          print("pose_count=", payload["pose_count"])
+          print("score_count=", payload["score_count"])
+          PY
+
+      - name: Upload final report bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-report-ia-v4
+          path: .moldock/report-ia-v4/reports/
+          retention-days: 7
