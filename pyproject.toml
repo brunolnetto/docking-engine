@@ -21,6 +21,9 @@ ducklake = [
     "duckdb>=1.5.5,<1.6",
     "pytz>=2024.1",
 ]
+meeko = [
+    "meeko>=0.8,<0.9",
+]
 rustfs = [
     "boto3>=1.35,<2",
 ]
