@@ -3,6 +3,7 @@ import pytest
 from moldock.domain import FailureKind, TaskStatus
 from moldock.reporting import (
     ClusterObservation,
+    InteractionObservation,
     MetricObservation,
     PipelineReport,
     RankingObservation,
@@ -79,6 +80,55 @@ def _successful_report():
                 method_version="1",
             )
         )
+    interactions = []
+    for rank, pose_id in enumerate(poses, start=1):
+        for residue in ("LEU:A:20", "ASP:A:30"):
+            interactions.append(
+                InteractionObservation(
+                    interaction_id=f"contact_{rank}_{residue}",
+                    pose_id=pose_id,
+                    kind="residue_contact",
+                    receptor_residue=residue,
+                    receptor_atom="C:1:C",
+                    ligand_atom="C1:1:C",
+                    distance_angstrom=3.2,
+                    angle_degrees=None,
+                    protein_is_donor=None,
+                    method="autodock_atom_type_geometry",
+                    method_version="1",
+                )
+            )
+        interactions.append(
+            InteractionObservation(
+                interaction_id=f"hydrophobic_{rank}",
+                pose_id=pose_id,
+                kind="hydrophobic_contact",
+                receptor_residue="LEU:A:20",
+                receptor_atom="C:1:C",
+                ligand_atom="C1:1:C",
+                distance_angstrom=3.5,
+                angle_degrees=None,
+                protein_is_donor=None,
+                method="autodock_atom_type_geometry",
+                method_version="1",
+            )
+        )
+        if rank <= 2:
+            interactions.append(
+                InteractionObservation(
+                    interaction_id=f"hbond_{rank}",
+                    pose_id=pose_id,
+                    kind="hydrogen_bond",
+                    receptor_residue="ASP:A:30",
+                    receptor_atom="O:2:OA",
+                    ligand_atom="N1:2:N",
+                    distance_angstrom=2.8,
+                    angle_degrees=155.0,
+                    protein_is_donor=False,
+                    method="autodock_atom_type_geometry",
+                    method_version="1",
+                )
+            )
     task = TaskPipelineReport(
         task_id="task_1",
         ligand_id="STI",
@@ -93,6 +143,7 @@ def _successful_report():
         rankings=tuple(rankings),
         metrics=tuple(metrics),
         clusters=tuple(clusters),
+        interactions=tuple(interactions),
     )
     return PipelineReport(
         run_id="run_1",
@@ -133,6 +184,17 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert any("4 RMSD cluster" in item for item in report.narrative.interpretation)
     assert "shares its 2.0 Å RMSD cluster" in report.narrative.conclusion
     assert "substantial structural diversity" in report.narrative.conclusion
+    assert report.poses[0].contact_residues == (
+        "ASP:A:30",
+        "LEU:A:20",
+    )
+    assert report.poses[0].hydrogen_bond_count == 1
+    assert report.poses[0].hydrophobic_contact_count == 1
+    assert any(
+        "conserved residue contacts" in item
+        for item in report.narrative.interpretation
+    )
+    assert "common receptor residue" in report.narrative.conclusion
 
 
 def test_scientific_report_limits_interpretation_for_failed_experiment():
