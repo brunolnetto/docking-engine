@@ -413,11 +413,15 @@ def test_pipeline_runs_toolchain_preflight_before_preparation(tmp_path):
         assert result.toolchain_snapshot == preflight.snapshot
         assert preflight.calls == [
             {
+                "expected_backend": "vina",
                 "expected_vina_version": "1.2.7",
                 "expected_ligand_method": "fake-ligand",
                 "expected_ligand_version": "1",
                 "expected_receptor_method": "fake-receptor",
                 "expected_receptor_version": "1",
+                "vina_executable": None,
+                "ligand_executable": None,
+                "receptor_executable": None,
             }
         ]
         assert receptor_preparer.calls == 1

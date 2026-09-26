@@ -57,6 +57,10 @@ class VinaBackend:
         self._runner = runner or _default_runner
         self._execution_timeout = execution_timeout
 
+    @property
+    def executable(self) -> str:
+        return self._executable
+
     def execute(self, request: DockingExecutionRequest) -> DockingResult:
         unsupported = sorted(set(request.parameters) - set(_SUPPORTED_PARAMETERS))
         if unsupported:

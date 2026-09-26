@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib import metadata
+from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 from typing import Callable, Protocol, runtime_checkable
@@ -13,7 +14,7 @@ from moldock.domain.common import content_id
 
 VersionRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 Which = Callable[[str], str | None]
-PackageVersion = Callable[[str], str]
+InterpreterResolver = Callable[[str], str | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +60,15 @@ class ToolchainPreflight(Protocol):
     def inspect(
         self,
         *,
+        expected_backend: str,
         expected_vina_version: str,
         expected_ligand_method: str,
         expected_ligand_version: str,
         expected_receptor_method: str,
         expected_receptor_version: str,
+        vina_executable: str | None,
+        ligand_executable: str | None,
+        receptor_executable: str | None,
     ) -> ToolchainSnapshot: ...
 
 
@@ -78,42 +83,74 @@ def _default_runner(
     )
 
 
+def _default_interpreter_for_executable(
+    executable_path: str,
+) -> str | None:
+    try:
+        first_line = Path(executable_path).read_text(
+            encoding="utf-8",
+            errors="replace",
+        ).splitlines()[0]
+    except (OSError, IndexError):
+        return None
+
+    if not first_line.startswith("#!"):
+        return None
+    tokens = shlex.split(first_line[2:].strip())
+    if not tokens:
+        return None
+
+    interpreter = tokens[0]
+    if Path(interpreter).name == "env":
+        if len(tokens) < 2:
+            return None
+        return shutil.which(tokens[1])
+    return interpreter
+
+
 class VinaMeekoToolchainPreflight:
-    """Verify the concrete local Vina/Meeko toolchain before execution."""
+    """Verify the exact local executables used by Vina/Meeko adapters."""
 
     _VERSION_PATTERN = re.compile(
         r"(?:AutoDock\s+Vina\s+)?v?(\d+\.\d+(?:\.\d+)?)",
         re.IGNORECASE,
     )
+    _MEEKO_VERSION_CODE = (
+        "from importlib.metadata import version;"
+        "print(version('meeko'))"
+    )
 
     def __init__(
         self,
         *,
-        vina_executable: str = "vina",
-        meeko_ligand_executable: str = "mk_prepare_ligand.py",
-        meeko_receptor_executable: str = "mk_prepare_receptor.py",
         runner: VersionRunner | None = None,
         which: Which | None = None,
-        package_version: PackageVersion | None = None,
+        interpreter_for_executable: InterpreterResolver | None = None,
     ) -> None:
-        self._vina_executable = vina_executable
-        self._meeko_ligand_executable = meeko_ligand_executable
-        self._meeko_receptor_executable = meeko_receptor_executable
         self._runner = runner or _default_runner
         self._which = which or shutil.which
-        self._package_version = (
-            package_version or metadata.version
+        self._interpreter_for_executable = (
+            interpreter_for_executable
+            or _default_interpreter_for_executable
         )
 
     def inspect(
         self,
         *,
+        expected_backend: str,
         expected_vina_version: str,
         expected_ligand_method: str,
         expected_ligand_version: str,
         expected_receptor_method: str,
         expected_receptor_version: str,
+        vina_executable: str | None,
+        ligand_executable: str | None,
+        receptor_executable: str | None,
     ) -> ToolchainSnapshot:
+        if expected_backend.strip().lower() != "vina":
+            raise DomainValidationError(
+                "backend must be vina for VinaMeekoToolchainPreflight"
+            )
         if expected_ligand_method.strip().lower() != "meeko":
             raise DomainValidationError(
                 "ligand preparation method must be meeko for "
@@ -125,76 +162,114 @@ class VinaMeekoToolchainPreflight:
                 "VinaMeekoToolchainPreflight"
             )
 
-        vina_path = self._resolve(self._vina_executable)
-        ligand_path = self._resolve(
-            self._meeko_ligand_executable
+        vina_path = self._resolve_actual(
+            "Vina", vina_executable
         )
-        receptor_path = self._resolve(
-            self._meeko_receptor_executable
+        ligand_path = self._resolve_actual(
+            "Meeko ligand", ligand_executable
+        )
+        receptor_path = self._resolve_actual(
+            "Meeko receptor", receptor_executable
         )
 
-        process = self._runner([vina_path, "--version"])
-        if process.returncode != 0:
-            raise DomainValidationError(
-                "Vina version probe failed"
-            )
-        match = self._VERSION_PATTERN.search(
-            process.stdout or ""
+        vina_version = self._probe_vina_version(vina_path)
+        ligand_version = self._probe_meeko_version(
+            ligand_path
         )
-        if match is None:
-            raise DomainValidationError(
-                "could not parse Vina version"
-            )
-        vina_version = match.group(1)
-
-        try:
-            meeko_version = self._package_version("meeko")
-        except metadata.PackageNotFoundError as exc:
-            raise DomainValidationError(
-                "Meeko package is not installed"
-            ) from exc
+        receptor_version = self._probe_meeko_version(
+            receptor_path
+        )
 
         if vina_version != expected_vina_version:
             raise DomainValidationError(
                 "Vina version mismatch: "
                 f"expected {expected_vina_version}, got {vina_version}"
             )
-        if meeko_version != expected_ligand_version:
+        if ligand_version != expected_ligand_version:
             raise DomainValidationError(
                 "Meeko ligand version mismatch: "
-                f"expected {expected_ligand_version}, got {meeko_version}"
+                f"expected {expected_ligand_version}, got {ligand_version}"
             )
-        if meeko_version != expected_receptor_version:
+        if receptor_version != expected_receptor_version:
             raise DomainValidationError(
                 "Meeko receptor version mismatch: "
-                f"expected {expected_receptor_version}, got {meeko_version}"
+                f"expected {expected_receptor_version}, got {receptor_version}"
             )
 
         return ToolchainSnapshot(
             vina=ExecutableInfo(
                 name="vina",
-                executable=self._vina_executable,
+                executable=vina_executable,
                 resolved_path=vina_path,
                 version=vina_version,
             ),
             meeko_ligand=ExecutableInfo(
                 name="meeko_ligand",
-                executable=self._meeko_ligand_executable,
+                executable=ligand_executable,
                 resolved_path=ligand_path,
-                version=meeko_version,
+                version=ligand_version,
             ),
             meeko_receptor=ExecutableInfo(
                 name="meeko_receptor",
-                executable=self._meeko_receptor_executable,
+                executable=receptor_executable,
                 resolved_path=receptor_path,
-                version=meeko_version,
+                version=receptor_version,
             ),
         )
 
-    def _resolve(self, executable: str) -> str:
+    def _resolve_actual(
+        self,
+        label: str,
+        executable: str | None,
+    ) -> str:
+        if executable is None or not executable.strip():
+            raise DomainValidationError(
+                f"{label} adapter does not expose its executable"
+            )
         resolved = self._which(executable)
         if resolved is None:
             raise DomainValidationError(
                 f"required executable not found: {executable}"
             )
         return resolved
+
+    def _probe_vina_version(self, path: str) -> str:
+        process = self._runner([path, "--version"])
+        if process.returncode != 0:
+            raise DomainValidationError(
+                "Vina version probe failed"
+            )
+        output = (process.stdout or "") + "\n" + (
+            process.stderr or ""
+        )
+        match = self._VERSION_PATTERN.search(output)
+        if match is None:
+            raise DomainValidationError(
+                "could not parse Vina version"
+            )
+        return match.group(1)
+
+    def _probe_meeko_version(self, path: str) -> str:
+        interpreter = self._interpreter_for_executable(path)
+        if interpreter is None:
+            raise DomainValidationError(
+                "could not determine Python environment for "
+                f"Meeko executable: {path}"
+            )
+        process = self._runner(
+            [
+                interpreter,
+                "-c",
+                self._MEEKO_VERSION_CODE,
+            ]
+        )
+        if process.returncode != 0:
+            raise DomainValidationError(
+                f"Meeko version probe failed for: {path}"
+            )
+        version = (process.stdout or "").strip()
+        if not version:
+            raise DomainValidationError(
+                f"Meeko version probe returned no version for: {path}"
+            )
+        return version
