@@ -5,6 +5,7 @@ from typing import Protocol, runtime_checkable
 from moldock.domain import ArtifactMetadata
 from moldock.storage import ArtifactStore
 
+from .analysis import PoseScientificAnalyzer
 from .parser import VinaResultParser
 from .repository import ScientificResultRepository
 
@@ -37,11 +38,15 @@ class VinaResultInterpreter:
         repository: ScientificResultRepository,
         method_version: str,
         parser: VinaResultParser | None = None,
+        analyzer: PoseScientificAnalyzer | None = None,
     ) -> None:
         self._store = artifact_store
         self._repository = repository
         self._method_version = method_version
         self._parser = parser or VinaResultParser()
+        self._analyzer = analyzer or PoseScientificAnalyzer(
+            repository=repository
+        )
 
     def interpret(
         self,
@@ -67,3 +72,8 @@ class VinaResultInterpreter:
             self._repository.register_score(score)
         for ranking in parsed.rankings:
             self._repository.register_ranking(ranking)
+
+        self._analyzer.analyze(
+            attempt_id=artifact.producer_attempt_id,
+            content=content,
+        )
