@@ -94,15 +94,14 @@ class MeekoLigandPreparer:
             self._append_parameters(command, request.protocol.parameters)
 
             try:
-                process = self._runner(
-                    command,
-                    cwd=cwd,
-                    timeout=(
-                        self._execution_timeout.total_seconds()
-                        if self._execution_timeout is not None
-                        else None
-                    ),
-                )
+                if self._execution_timeout is None:
+                    process = self._runner(command, cwd=cwd)
+                else:
+                    process = self._runner(
+                        command,
+                        cwd=cwd,
+                        timeout=self._execution_timeout.total_seconds(),
+                    )
             except subprocess.TimeoutExpired as exc:
                 raise MeekoLigandPreparationTimeoutError(
                     "Meeko ligand preparation timed out"
@@ -170,10 +169,32 @@ class MeekoLigandPreparer:
             raise DomainValidationError(
                 f"unsupported Meeko ligand source format: {source_format}"
             )
-        if source_format == "sdf" and request.content.count(b"$$$$") > 1:
+        if (
+            source_format == "sdf"
+            and self._count_record_lines(request.content, b"$$") > 1
+        ):
             raise DomainValidationError(
                 "MeekoLigandPreparer accepts a single molecule per SDF request"
             )
+        if (
+            source_format == "mol2"
+            and self._count_record_lines(
+                request.content,
+                b"@<TRIPOS>MOLECULE",
+            )
+            > 1
+        ):
+            raise DomainValidationError(
+                "MeekoLigandPreparer accepts a single molecule per MOL2 request"
+            )
+
+    @staticmethod
+    def _count_record_lines(content: bytes, marker: bytes) -> int:
+        marker = marker.upper()
+        return sum(
+            line.strip().upper() == marker
+            for line in content.splitlines()
+        )
 
     @staticmethod
     def _append_parameters(command: list[str], parameters) -> None:
