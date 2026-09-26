@@ -1,5 +1,6 @@
 import pytest
 
+import moldock.domain.interaction as interaction_module
 import moldock.domain.result as result_module
 from moldock.domain import (
     DomainValidationError,
@@ -296,3 +297,57 @@ def test_score_metadata_preserves_collection_types_across_restart(tmp_path):
         assert reopened.list_scores_for_pose(pose.pose_id) == (score,)
     finally:
         reopened.close()
+
+
+
+def make_interaction(pose_id, distance=2.8):
+    return PoseInteraction(
+        pose_id=pose_id,
+        kind=PoseInteractionKind.HYDROGEN_BOND,
+        receptor_atom_serial=10,
+        receptor_atom_name="NZ",
+        receptor_residue_name="LYS",
+        receptor_chain="A",
+        receptor_residue_number="10",
+        ligand_atom_serial=1,
+        ligand_atom_name="O1",
+        distance_angstrom=distance,
+        method="pdbqt_geometric_interactions",
+        method_version="1",
+    )
+
+
+def test_ducklake_interaction_registration_is_idempotent(tmp_path):
+    repo = make_repo(tmp_path)
+    pose = make_pose()
+    interaction = make_interaction(pose.pose_id)
+    try:
+        repo.register_pose(pose)
+        repo.register_interaction(interaction)
+        repo.register_interaction(interaction)
+
+        assert repo.list_interactions_for_pose(pose.pose_id) == (
+            interaction,
+        )
+        assert repo.list_interactions_for_pose("missing") == ()
+    finally:
+        repo.close()
+
+
+def test_ducklake_interaction_collision_is_rejected(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    pose = make_pose()
+    repo.register_pose(pose)
+    monkeypatch.setattr(
+        interaction_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
+    )
+    first = make_interaction(pose.pose_id, distance=2.8)
+    second = make_interaction(pose.pose_id, distance=3.1)
+    try:
+        repo.register_interaction(first)
+        with pytest.raises(DomainValidationError, match="conflicting"):
+            repo.register_interaction(second)
+    finally:
+        repo.close()
