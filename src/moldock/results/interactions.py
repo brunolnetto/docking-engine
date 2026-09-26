@@ -314,7 +314,7 @@ class PdbqtPoseInteractionAnalyzer:
         receptor_charged = tuple(
             item
             for atom in receptor_heavy
-            if (item := self._protein_charge(atom)) != 0
+            if (item := self._protein_charge(atom)) is not None
         )
         ligand_charged = tuple(
             atom
@@ -489,7 +489,9 @@ class PdbqtPoseInteractionAnalyzer:
         return tuple(donors)
 
     @staticmethod
-    def _protein_charge(atom: PdbqtAtom) -> tuple[int, PdbqtAtom] | tuple[()]:
+    def _protein_charge(
+        atom: PdbqtAtom,
+    ) -> tuple[int, PdbqtAtom] | None:
         residue = atom.residue_name.upper()
         name = atom.atom_name.upper()
         if residue == "ASP" and name in {"OD1", "OD2"}:
@@ -500,4 +502,4 @@ class PdbqtPoseInteractionAnalyzer:
             return (1, atom)
         if residue == "ARG" and name in {"NE", "NH1", "NH2"}:
             return (1, atom)
-        return ()
+        return None
