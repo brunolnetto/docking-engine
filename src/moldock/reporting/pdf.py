@@ -590,6 +590,50 @@ class ReportLabPipelineReporter:
                 ]
             )
 
+            interaction_rows = [
+                [
+                    "Rank",
+                    "Contacts",
+                    "H-bonds",
+                    "Hydrophobic",
+                    "Salt bridges",
+                    "Contact residues",
+                ]
+            ]
+            for pose in scientific.poses:
+                counts = dict(pose.interaction_counts)
+                interaction_rows.append(
+                    [
+                        pose.rank if pose.rank is not None else "—",
+                        counts.get("contact", 0),
+                        counts.get("hydrogen_bond", 0),
+                        counts.get("hydrophobic", 0),
+                        counts.get("salt_bridge", 0),
+                        ", ".join(pose.contact_residues[:8]),
+                    ]
+                )
+            if any(pose.interaction_counts for pose in scientific.poses):
+                story.extend(
+                    [
+                        paragraph(
+                            "Protein-ligand interaction profile",
+                            "DockingH2",
+                        ),
+                        striped_table(
+                            interaction_rows,
+                            [
+                                14 * mm,
+                                20 * mm,
+                                20 * mm,
+                                24 * mm,
+                                24 * mm,
+                                72 * mm,
+                            ],
+                            right_columns=(0, 1, 2, 3, 4),
+                        ),
+                    ]
+                )
+
         story.extend(
             [
                 paragraph("Interpretation", "DockingH2"),
@@ -694,6 +738,54 @@ class ReportLabPipelineReporter:
                         [25 * mm, 16 * mm, 88 * mm, 45 * mm],
                         mono_columns=(2,),
                         right_columns=(1,),
+                    ),
+                ]
+            )
+
+        interaction_trace_rows = [
+            [
+                "Pose",
+                "Kind",
+                "Residue",
+                "Distance Å",
+                "Atom pair",
+                "Method",
+            ]
+        ]
+        for task in report.tasks:
+            for interaction in task.interactions:
+                interaction_trace_rows.append(
+                    [
+                        interaction.pose_id,
+                        interaction.kind,
+                        interaction.receptor_residue_id,
+                        f"{interaction.distance_angstrom:.3f}",
+                        (
+                            f"{interaction.receptor_atom_name} / "
+                            f"{interaction.ligand_atom_name}"
+                        ),
+                        (
+                            f"{interaction.method}@"
+                            f"{interaction.method_version}"
+                        ),
+                    ]
+                )
+        if len(interaction_trace_rows) > 1:
+            story.extend(
+                [
+                    paragraph("Interaction traceability", "DockingH2"),
+                    striped_table(
+                        interaction_trace_rows,
+                        [
+                            55 * mm,
+                            24 * mm,
+                            28 * mm,
+                            20 * mm,
+                            25 * mm,
+                            22 * mm,
+                        ],
+                        mono_columns=(0,),
+                        right_columns=(3,),
                     ),
                 ]
             )
