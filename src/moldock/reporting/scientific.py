@@ -25,6 +25,7 @@ class ScientificNarrative:
     title: str
     objective: str
     outcome: str
+    conclusion: str
     interpretation: tuple[str, ...]
     limitations: tuple[str, ...]
     next_steps: tuple[str, ...]
@@ -159,6 +160,10 @@ class ScientificReportBuilder:
             )
 
         interpretation: list[str] = []
+        conclusion = (
+            "The current durable results support descriptive reporting only; "
+            "no pose-level scientific conclusion is justified yet."
+        )
         limitations = [
             (
                 "Docking scores are model outputs and do not by themselves "
@@ -201,10 +206,28 @@ class ScientificReportBuilder:
                         f"{gap:g}{suffix}; this describes separation within "
                         "the Vina scoring function, not experimental affinity."
                     )
+                    conclusion = (
+                        f"Within this Vina run, rank 1 is the scoring-function "
+                        f"preferred pose and is separated from rank 2 by "
+                        f"{gap:g}{suffix}. This supports prioritizing rank 1 "
+                        "for structural follow-up, not claiming experimental "
+                        "binding superiority."
+                    )
+                else:
+                    conclusion = (
+                        "The available Vina result identifies a rank-1 pose, "
+                        "but there is no second ranked pose with which to "
+                        "evaluate score separation."
+                    )
             elif ranked:
                 interpretation.append(
                     f"{len(ranked)} ranked pose(s) were persisted for "
                     f"{method}/{kind}; no cross-method ordering was inferred."
+                )
+                conclusion = (
+                    f"The {method}/{kind} results support prioritization only "
+                    "within that score family; no cross-method conclusion was "
+                    "derived."
                 )
 
         if not interpretation:
@@ -227,6 +250,10 @@ class ScientificReportBuilder:
                 ]
             )
         if report.failed_count:
+            conclusion = (
+                "No scientific docking conclusion should be drawn until the "
+                "failed execution state is resolved."
+            )
             next_steps.insert(
                 0,
                 "Resolve failed docking tasks before drawing scientific conclusions.",
@@ -236,6 +263,7 @@ class ScientificReportBuilder:
             title=title,
             objective=objective,
             outcome=outcome,
+            conclusion=conclusion,
             interpretation=tuple(interpretation),
             limitations=tuple(limitations),
             next_steps=tuple(next_steps),
