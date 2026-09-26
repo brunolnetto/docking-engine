@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from .model import PipelineReport
+from .scientific import ScientificExperimentReport, ScientificReportBuilder
 
 
 def _score_value(value: float) -> str:
@@ -12,21 +13,18 @@ def _score_value(value: float) -> str:
 
 
 class ReportLabPipelineReporter:
-    """Render an auditable, deterministic PDF presentation of a pipeline report.
-
-    ReportLab is an optional dependency. Install ``docking-engine[pdf]`` to
-    enable this renderer. The PDF is presentation-only: scientific identity
-    remains anchored by the durable report/run-manifest data.
-    """
+    """Render a scientist-facing PDF with a reproducibility appendix."""
 
     def render(self, report: PipelineReport) -> bytes:
         try:
+            from reportlab.graphics.shapes import Drawing, Rect, String
             from reportlab.lib import colors
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
             from reportlab.lib.units import mm
             from reportlab.pdfgen.canvas import Canvas
             from reportlab.platypus import (
+                KeepTogether,
                 PageBreak,
                 Paragraph,
                 SimpleDocTemplate,
@@ -40,8 +38,12 @@ class ReportLabPipelineReporter:
                 "pip install 'docking-engine[pdf]'"
             ) from exc
 
+        scientific = ScientificReportBuilder().build(report)
+
         navy = colors.HexColor("#17324D")
+        blue = colors.HexColor("#285F8F")
         pale = colors.HexColor("#F4F7FB")
+        pale_blue = colors.HexColor("#EAF2F8")
         line = colors.HexColor("#D8E1EA")
         text = colors.HexColor("#1D2733")
         muted = colors.HexColor("#667788")
@@ -55,10 +57,10 @@ class ReportLabPipelineReporter:
                 name="DockingTitle",
                 parent=styles["Title"],
                 fontName="Helvetica-Bold",
-                fontSize=22,
-                leading=26,
+                fontSize=21,
+                leading=25,
                 textColor=navy,
-                spaceAfter=5 * mm,
+                spaceAfter=2.5 * mm,
             )
         )
         styles.add(
@@ -66,10 +68,10 @@ class ReportLabPipelineReporter:
                 name="DockingSubtitle",
                 parent=styles["BodyText"],
                 fontName="Helvetica",
-                fontSize=10,
-                leading=14,
+                fontSize=9.5,
+                leading=13,
                 textColor=muted,
-                spaceAfter=5 * mm,
+                spaceAfter=4 * mm,
             )
         )
         styles.add(
@@ -77,11 +79,23 @@ class ReportLabPipelineReporter:
                 name="DockingH2",
                 parent=styles["Heading2"],
                 fontName="Helvetica-Bold",
-                fontSize=13,
-                leading=16,
+                fontSize=12.5,
+                leading=15,
                 textColor=navy,
                 spaceBefore=4 * mm,
-                spaceAfter=2.5 * mm,
+                spaceAfter=2 * mm,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="DockingH3",
+                parent=styles["Heading3"],
+                fontName="Helvetica-Bold",
+                fontSize=9.5,
+                leading=12,
+                textColor=navy,
+                spaceBefore=2.5 * mm,
+                spaceAfter=1.5 * mm,
             )
         )
         styles.add(
@@ -89,8 +103,8 @@ class ReportLabPipelineReporter:
                 name="DockingBody",
                 parent=styles["BodyText"],
                 fontName="Helvetica",
-                fontSize=8.5,
-                leading=11,
+                fontSize=8.7,
+                leading=12,
                 textColor=text,
             )
         )
@@ -99,8 +113,8 @@ class ReportLabPipelineReporter:
                 name="DockingHeader",
                 parent=styles["BodyText"],
                 fontName="Helvetica-Bold",
-                fontSize=8,
-                leading=10,
+                fontSize=7.5,
+                leading=9,
                 textColor=white,
             )
         )
@@ -109,8 +123,8 @@ class ReportLabPipelineReporter:
                 name="DockingMono",
                 parent=styles["BodyText"],
                 fontName="Courier",
-                fontSize=7.2,
-                leading=9.2,
+                fontSize=6.7,
+                leading=8.5,
                 textColor=text,
                 wordWrap="CJK",
             )
@@ -120,8 +134,8 @@ class ReportLabPipelineReporter:
                 name="DockingMetric",
                 parent=styles["BodyText"],
                 fontName="Helvetica-Bold",
-                fontSize=17,
-                leading=19,
+                fontSize=16,
+                leading=18,
                 alignment=2,
                 textColor=navy,
             )
@@ -131,7 +145,7 @@ class ReportLabPipelineReporter:
                 name="DockingMetricLabel",
                 parent=styles["BodyText"],
                 fontName="Helvetica",
-                fontSize=7.5,
+                fontSize=7.2,
                 leading=9,
                 textColor=muted,
             )
@@ -141,9 +155,24 @@ class ReportLabPipelineReporter:
                 name="DockingNote",
                 parent=styles["BodyText"],
                 fontName="Helvetica",
-                fontSize=8,
-                leading=11,
+                fontSize=7.8,
+                leading=10.5,
                 textColor=muted,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="DockingCallout",
+                parent=styles["BodyText"],
+                fontName="Helvetica",
+                fontSize=9.2,
+                leading=13,
+                textColor=text,
+                backColor=pale_blue,
+                borderColor=line,
+                borderWidth=0.5,
+                borderPadding=8,
+                spaceAfter=3 * mm,
             )
         )
         styles.add(
@@ -151,7 +180,7 @@ class ReportLabPipelineReporter:
                 name="DockingDiagnostic",
                 parent=styles["BodyText"],
                 fontName="Courier",
-                fontSize=6.8,
+                fontSize=6.7,
                 leading=8.5,
                 textColor=text,
                 wordWrap="CJK",
@@ -169,45 +198,40 @@ class ReportLabPipelineReporter:
                 kwargs["pageCompression"] = 1
                 super().__init__(*args, **kwargs)
 
+        def esc(value: object) -> str:
+            return (
+                str("" if value is None else value)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+
         def paragraph(value: object, style: str = "DockingBody"):
-            escaped = (
-                str("" if value is None else value)
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-            )
-            return Paragraph(escaped, styles[style])
+            return Paragraph(esc(value), styles[style])
 
-        def diagnostic_paragraph(value: object):
-            escaped = (
-                str("" if value is None else value)
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\n", "<br/>")
-            )
-            return Paragraph(escaped, styles["DockingDiagnostic"])
-
-        def key_value_table(rows):
-            table = Table(
-                [
-                    [paragraph(key), paragraph(value, "DockingMono")]
-                    for key, value in rows
-                ],
-                colWidths=[48 * mm, 126 * mm],
-                hAlign="LEFT",
-            )
+        def bullets(items: tuple[str, ...] | list[str]):
+            if not items:
+                return paragraph(
+                    "No additional items are supported by the current durable state.",
+                    "DockingNote",
+                )
+            rows = []
+            for item in items:
+                rows.append(
+                    [
+                        paragraph("•", "DockingBody"),
+                        paragraph(item, "DockingBody"),
+                    ]
+                )
+            table = Table(rows, colWidths=[5 * mm, 169 * mm])
             table.setStyle(
                 TableStyle(
                     [
-                        ("BACKGROUND", (0, 0), (0, -1), pale),
-                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("GRID", (0, 0), (-1, -1), 0.35, line),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                        ("TOPPADDING", (0, 0), (-1, -1), 5),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                        ("TOPPADDING", (0, 0), (-1, -1), 1),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                     ]
                 )
             )
@@ -247,17 +271,117 @@ class ReportLabPipelineReporter:
             table.setStyle(TableStyle(commands))
             return table
 
+        def key_value_table(rows):
+            table = Table(
+                [
+                    [paragraph(key), paragraph(value, "DockingMono")]
+                    for key, value in rows
+                ],
+                colWidths=[48 * mm, 126 * mm],
+                hAlign="LEFT",
+            )
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, -1), pale),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("GRID", (0, 0), (-1, -1), 0.35, line),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 5),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ]
+                )
+            )
+            return table
+
+        def score_chart(
+            scientific_report: ScientificExperimentReport,
+        ):
+            poses = [
+                pose
+                for pose in scientific_report.poses
+                if pose.rank is not None
+            ]
+            if not poses:
+                return None
+            families = {
+                (pose.method, pose.score_kind, pose.score_unit)
+                for pose in poses
+            }
+            if len(families) != 1:
+                return None
+            poses = sorted(poses, key=lambda item: item.rank or 10**9)[:10]
+            values = [pose.score_value for pose in poses]
+            low = min(values)
+            high = max(values)
+            span = high - low or 1.0
+            width = 174 * mm
+            row_h = 8 * mm
+            height = (len(poses) * row_h) + 11 * mm
+            drawing = Drawing(width, height)
+            label_x = 0
+            bar_x = 37 * mm
+            bar_width = 102 * mm
+            value_x = 144 * mm
+            for index, pose in enumerate(poses):
+                y = height - 9 * mm - ((index + 1) * row_h)
+                drawing.add(
+                    String(
+                        label_x,
+                        y + 1.5 * mm,
+                        f"Rank {pose.rank}",
+                        fontName="Helvetica",
+                        fontSize=7.5,
+                        fillColor=muted,
+                    )
+                )
+                normalized = (high - pose.score_value) / span
+                length = max(5 * mm, (25 + 75 * normalized) / 100 * bar_width)
+                drawing.add(
+                    Rect(
+                        bar_x,
+                        y,
+                        length,
+                        4.2 * mm,
+                        fillColor=blue,
+                        strokeColor=None,
+                    )
+                )
+                drawing.add(
+                    String(
+                        value_x,
+                        y + 1.5 * mm,
+                        _score_value(pose.score_value),
+                        fontName="Helvetica-Bold",
+                        fontSize=7.5,
+                        fillColor=text,
+                    )
+                )
+            unit = poses[0].score_unit or ""
+            drawing.add(
+                String(
+                    bar_x,
+                    height - 5 * mm,
+                    f"{poses[0].method}/{poses[0].score_kind} ({unit})",
+                    fontName="Helvetica",
+                    fontSize=7,
+                    fillColor=muted,
+                )
+            )
+            return drawing
+
         buffer = BytesIO()
         document = SimpleDocTemplate(
             buffer,
             pagesize=A4,
             rightMargin=18 * mm,
             leftMargin=18 * mm,
-            topMargin=16 * mm,
+            topMargin=15 * mm,
             bottomMargin=20 * mm,
-            title="Molecular Docking Report",
+            title=scientific.narrative.title,
             author="docking-engine",
-            subject=f"Auditable report for run {report.run_id}",
+            subject=f"Scientific docking report for run {report.run_id}",
         )
 
         def footer(canvas, doc):
@@ -271,7 +395,7 @@ class ReportLabPipelineReporter:
             canvas.drawString(
                 18 * mm,
                 9 * mm,
-                f"Molecular Docking Report | Run {report.run_id}",
+                f"{scientific.narrative.title} | Run {report.run_id}",
             )
             canvas.drawRightString(
                 width - 18 * mm,
@@ -281,21 +405,18 @@ class ReportLabPipelineReporter:
             canvas.restoreState()
 
         story = [
-            paragraph("MOLECULAR DOCKING REPORT", "DockingTitle"),
+            paragraph(scientific.narrative.title.upper(), "DockingTitle"),
             paragraph(
-                "Reproducible execution record with durable provenance, "
-                "task state, and method-scoped scientific observations.",
+                "Scientist-facing interpretation of a reproducible molecular "
+                "docking experiment.",
                 "DockingSubtitle",
             ),
+            paragraph("Study objective", "DockingH2"),
+            paragraph(scientific.narrative.objective, "DockingCallout"),
         ]
 
-        successful = (
-            report.task_count > 0
-            and report.failed_count == 0
-            and report.succeeded_count == report.task_count
-        )
-        status = "SUCCEEDED" if successful else "ATTENTION"
-        status_color = green if successful else red
+        status = "COMPLETED" if scientific.completed else "REVIEW REQUIRED"
+        status_color = green if scientific.completed else red
         status_style = ParagraphStyle(
             "DockingStatus",
             parent=styles["DockingMetric"],
@@ -304,7 +425,7 @@ class ReportLabPipelineReporter:
         status_table = Table(
             [
                 [
-                    paragraph("RUN STATUS", "DockingMetricLabel"),
+                    paragraph("EXPERIMENT STATUS", "DockingMetricLabel"),
                     Paragraph(status, status_style),
                 ]
             ],
@@ -318,20 +439,35 @@ class ReportLabPipelineReporter:
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 8),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 7),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
                 ]
             )
         )
-        story.extend([status_table, Spacer(1, 5 * mm)])
+        story.extend([status_table, Spacer(1, 3 * mm)])
 
+        metric_specs = [
+            ("Ligands", len({task.ligand_id for task in report.tasks})),
+            ("Scored poses", len(scientific.poses)),
+            (
+                "Score range",
+                (
+                    "n/a"
+                    if scientific.score_min is None
+                    else f"{scientific.score_min:g} to {scientific.score_max:g}"
+                ),
+            ),
+            (
+                "Spread",
+                (
+                    "n/a"
+                    if scientific.score_spread is None
+                    else f"{scientific.score_spread:g}"
+                ),
+            ),
+        ]
         metric_cells = []
-        for label, value in (
-            ("Tasks", report.task_count),
-            ("Attempts", report.attempt_count),
-            ("Poses", report.pose_count),
-            ("Scores", report.score_count),
-        ):
+        for label, value in metric_specs:
             cell = Table(
                 [
                     [paragraph(label, "DockingMetricLabel")],
@@ -352,11 +488,8 @@ class ReportLabPipelineReporter:
                 )
             )
             metric_cells.append(cell)
-        metric_table = Table(
-            [metric_cells],
-            colWidths=[43.5 * mm] * 4,
-        )
-        metric_table.setStyle(
+        metrics = Table([metric_cells], colWidths=[43.5 * mm] * 4)
+        metrics.setStyle(
             TableStyle(
                 [
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -365,9 +498,90 @@ class ReportLabPipelineReporter:
                 ]
             )
         )
-        story.append(metric_table)
+        story.append(metrics)
 
-        story.append(paragraph("Provenance", "DockingH2"))
+        story.extend(
+            [
+                paragraph("What happened?", "DockingH2"),
+                paragraph(scientific.narrative.outcome, "DockingCallout"),
+            ]
+        )
+        chart = score_chart(scientific)
+        if chart is not None:
+            story.extend(
+                [
+                    paragraph("Pose score profile", "DockingH2"),
+                    chart,
+                ]
+            )
+
+        if scientific.poses:
+            ranked_values = {
+                pose.rank: pose.score_value
+                for pose in scientific.poses
+                if pose.rank is not None
+            }
+            rank_one = ranked_values.get(1)
+            score_rows = [
+                ["Rank", "Ligand", "Score", "Δ vs rank 1", "Unit", "Method"]
+            ]
+            for pose in scientific.poses:
+                delta = (
+                    ""
+                    if rank_one is None or pose.rank is None
+                    else f"{pose.score_value - rank_one:.3f}"
+                )
+                score_rows.append(
+                    [
+                        pose.rank if pose.rank is not None else "—",
+                        pose.ligand_id,
+                        _score_value(pose.score_value),
+                        delta,
+                        pose.score_unit or "",
+                        f"{pose.method} {pose.method_version}",
+                    ]
+                )
+            story.extend(
+                [
+                    paragraph("Pose-level results", "DockingH2"),
+                    striped_table(
+                        score_rows,
+                        [14 * mm, 24 * mm, 28 * mm, 31 * mm, 25 * mm, 52 * mm],
+                        right_columns=(0, 2, 3),
+                    ),
+                ]
+            )
+
+        story.extend(
+            [
+                paragraph("Interpretation", "DockingH2"),
+                bullets(scientific.narrative.interpretation),
+                KeepTogether(
+                    [
+                        paragraph("Conclusion", "DockingH2"),
+                        paragraph(
+                            scientific.narrative.conclusion,
+                            "DockingCallout",
+                        ),
+                    ]
+                ),
+                paragraph("What this result does not establish", "DockingH2"),
+                bullets(scientific.narrative.limitations),
+                paragraph("Recommended next analyses", "DockingH2"),
+                bullets(scientific.narrative.next_steps),
+                Spacer(1, 9 * mm),
+                paragraph("Reproducibility Appendix", "DockingTitle"),
+                paragraph(
+                    "Technical identities and execution provenance are retained "
+                    "here for audit and reconstruction, separate from the "
+                    "scientific narrative. Scientific identity remains anchored "
+                    "by the durable run manifest, source hashes, prepared "
+                    "artifacts, task/attempt history, and captured toolchain.",
+                    "DockingSubtitle",
+                ),
+            ]
+        )
+
         provenance_rows = [
             ("Run ID", report.run_id),
             ("Run manifest ID", report.run_manifest_id or "n/a"),
@@ -376,197 +590,128 @@ class ReportLabPipelineReporter:
             ("Task manifest ID", report.manifest_id),
             ("Search space ID", report.search_space_id or "n/a"),
             ("Receptor ID", report.receptor_id or "n/a"),
+            ("Prepared receptor ID", report.prepared_receptor_id),
             (
                 "Receptor source SHA-256",
                 report.receptor_source_sha256 or "n/a",
             ),
         ]
-        provenance_rows.extend(
-            (
-                f"Ligand source SHA-256 ({ligand_id})",
-                source_sha256,
+        for ligand_id, source_sha256 in report.ligand_sources:
+            provenance_rows.append(
+                (f"Ligand source SHA-256 ({ligand_id})", source_sha256)
             )
-            for ligand_id, source_sha256 in report.ligand_sources
+        story.extend(
+            [
+                paragraph("Scientific identities", "DockingH2"),
+                key_value_table(provenance_rows),
+            ]
         )
-        story.append(key_value_table(provenance_rows))
 
         snapshot = report.toolchain_snapshot
         if snapshot is not None:
-            story.append(paragraph("Toolchain", "DockingH2"))
-            story.append(
-                striped_table(
-                    [
-                        ["Tool", "Version", "Resolved executable"],
+            story.extend(
+                [
+                    paragraph("Toolchain", "DockingH2"),
+                    striped_table(
                         [
-                            "AutoDock Vina",
-                            snapshot.vina.version,
-                            snapshot.vina.resolved_path,
+                            ["Tool", "Version", "Resolved executable"],
+                            [
+                                "AutoDock Vina",
+                                snapshot.vina.version,
+                                snapshot.vina.resolved_path,
+                            ],
+                            [
+                                "Meeko ligand",
+                                snapshot.meeko_ligand.version,
+                                snapshot.meeko_ligand.resolved_path,
+                            ],
+                            [
+                                "Meeko receptor",
+                                snapshot.meeko_receptor.version,
+                                snapshot.meeko_receptor.resolved_path,
+                            ],
                         ],
-                        [
-                            "Meeko ligand",
-                            snapshot.meeko_ligand.version,
-                            snapshot.meeko_ligand.resolved_path,
-                        ],
-                        [
-                            "Meeko receptor",
-                            snapshot.meeko_receptor.version,
-                            snapshot.meeko_receptor.resolved_path,
-                        ],
-                    ],
-                    [36 * mm, 22 * mm, 116 * mm],
-                    mono_columns=(2,),
-                )
+                        [36 * mm, 22 * mm, 116 * mm],
+                        mono_columns=(2,),
+                    ),
+                ]
             )
 
-        story.append(paragraph("Execution", "DockingH2"))
+        pose_trace_rows = [["Ligand", "Rank", "Pose ID", "Score family"]]
+        for pose in scientific.poses:
+            pose_trace_rows.append(
+                [
+                    pose.ligand_id,
+                    pose.rank if pose.rank is not None else "—",
+                    pose.pose_id,
+                    f"{pose.method}/{pose.score_kind}",
+                ]
+            )
+        if len(pose_trace_rows) > 1:
+            story.extend(
+                [
+                    paragraph("Pose traceability", "DockingH2"),
+                    striped_table(
+                        pose_trace_rows,
+                        [25 * mm, 16 * mm, 88 * mm, 45 * mm],
+                        mono_columns=(2,),
+                        right_columns=(1,),
+                    ),
+                ]
+            )
+
         execution_rows = [
-            ["Task", "Ligand", "Status", "Attempts", "Failure"]
+            ["Task", "Ligand", "Status", "Attempts", "Final attempt"]
         ]
         for task in report.tasks:
-            failure = (
-                task.failure_kind.value
-                if task.failure_kind is not None
-                else ("see diagnostics" if task.error else "")
-            )
             execution_rows.append(
                 [
                     task.task_id,
                     task.ligand_id,
                     task.status.value,
                     task.attempt_count,
-                    failure,
+                    task.final_attempt_id or "",
                 ]
             )
-        story.append(
-            striped_table(
-                execution_rows,
-                [75 * mm, 25 * mm, 29 * mm, 20 * mm, 25 * mm],
-                mono_columns=(0, 4),
-                right_columns=(3,),
-            )
+        story.extend(
+            [
+                paragraph("Execution state", "DockingH2"),
+                striped_table(
+                    execution_rows,
+                    [58 * mm, 22 * mm, 26 * mm, 18 * mm, 50 * mm],
+                    mono_columns=(0, 4),
+                    right_columns=(3,),
+                ),
+            ]
         )
 
-        failed_with_diagnostics = [
-            task for task in report.tasks if task.error
-        ]
-        if failed_with_diagnostics:
-            story.append(
-                paragraph("Failure diagnostics", "DockingH2")
-            )
-            for task in failed_with_diagnostics:
+        failed = [task for task in report.tasks if task.error]
+        if failed:
+            story.append(paragraph("Failure diagnostics", "DockingH2"))
+            for task in failed:
                 kind = (
                     task.failure_kind.value
                     if task.failure_kind is not None
                     else "UNCLASSIFIED"
                 )
+                diagnostic = (
+                    str(task.error)
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\n", "<br/>")
+                )
                 story.extend(
                     [
-                        paragraph(
-                            f"{task.task_id} | {kind}",
-                            "DockingMono",
-                        ),
-                        diagnostic_paragraph(task.error),
+                        paragraph(f"{task.task_id} | {kind}", "DockingMono"),
+                        Paragraph(diagnostic, styles["DockingDiagnostic"]),
                     ]
                 )
-
-        story.append(PageBreak())
-        story.extend(
-            [
-                paragraph("Scientific observations", "DockingH2"),
-                paragraph(
-                    "Scores are reported in their native method context. "
-                    "This report does not create a cross-method global "
-                    "best_score or compare heterogeneous scoring methods "
-                    "implicitly.",
-                    "DockingNote",
-                ),
-                Spacer(1, 2 * mm),
-            ]
-        )
-
-        score_rows = [
-            [
-                "Ligand",
-                "Pose",
-                "Kind",
-                "Value",
-                "Unit",
-                "Method",
-                "Version",
-            ]
-        ]
-        for task in report.tasks:
-            for score in task.scores:
-                score_rows.append(
-                    [
-                        task.ligand_id,
-                        score.pose_id,
-                        score.kind,
-                        _score_value(score.value),
-                        score.unit or "",
-                        score.method,
-                        score.method_version,
-                    ]
-                )
-        story.append(
-            striped_table(
-                score_rows,
-                [
-                    16 * mm,
-                    55 * mm,
-                    29 * mm,
-                    18 * mm,
-                    20 * mm,
-                    20 * mm,
-                    16 * mm,
-                ],
-                mono_columns=(1,),
-                right_columns=(3,),
-            )
-        )
-
-        ranking_rows = [
-            ["Ligand", "Pose", "Rank", "Ranking method"]
-        ]
-        for task in report.tasks:
-            for ranking in task.rankings:
-                ranking_rows.append(
-                    [
-                        task.ligand_id,
-                        ranking.pose_id,
-                        ranking.rank,
-                        ranking.method,
-                    ]
-                )
-        if len(ranking_rows) > 1:
-            story.extend(
-                [
-                    paragraph(
-                        "Within-method pose rankings",
-                        "DockingH2",
-                    ),
-                    paragraph(
-                        "Ranks below are preserved exactly as emitted "
-                        "for their named method. They are not a ranking "
-                        "across scoring methods.",
-                        "DockingNote",
-                    ),
-                    Spacer(1, 2 * mm),
-                    striped_table(
-                        ranking_rows,
-                        [25 * mm, 85 * mm, 20 * mm, 44 * mm],
-                        mono_columns=(1,),
-                        right_columns=(2,),
-                    ),
-                ]
-            )
 
         artifact_rows = [["Task", "Artifact ID"]]
         for task in report.tasks:
             for artifact_id in task.artifact_ids:
-                artifact_rows.append(
-                    [task.task_id, artifact_id]
-                )
+                artifact_rows.append([task.task_id, artifact_id])
         if len(artifact_rows) > 1:
             story.extend(
                 [
@@ -578,20 +723,6 @@ class ReportLabPipelineReporter:
                     ),
                 ]
             )
-
-        story.extend(
-            [
-                paragraph("Audit note", "DockingH2"),
-                paragraph(
-                    "This PDF is a deterministic presentation of durable "
-                    "pipeline state. Scientific identity remains anchored "
-                    "by the run manifest, source SHA-256 values, "
-                    "prepared-artifact identities, task/attempt history, "
-                    "and captured executable toolchain.",
-                    "DockingNote",
-                ),
-            ]
-        )
 
         document.build(
             story,

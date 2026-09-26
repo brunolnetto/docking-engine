@@ -6,6 +6,12 @@ from .model import (
     TaskPipelineReport,
 )
 from .pdf import ReportLabPipelineReporter
+from .scientific import (
+    ScientificExperimentReport,
+    ScientificNarrative,
+    ScientificPoseResult,
+    ScientificReportBuilder,
+)
 from .renderers import (
     JsonPipelineReporter,
     MarkdownPipelineReporter,
@@ -22,6 +28,10 @@ __all__ = [
     "ReportLabPipelineReporter",
     "RankingObservation",
     "ScoreObservation",
+    "ScientificExperimentReport",
+    "ScientificNarrative",
+    "ScientificPoseResult",
+    "ScientificReportBuilder",
     "TaskPipelineReport",
     "TextPipelineReporter",
 ]
