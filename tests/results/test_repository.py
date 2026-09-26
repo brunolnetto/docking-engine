@@ -1,9 +1,12 @@
 import pytest
 
+import moldock.domain.interaction as interaction_module
 import moldock.domain.result as result_module
 from moldock.domain import (
     DomainValidationError,
     Pose,
+    PoseInteraction,
+    PoseInteractionKind,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -138,3 +141,61 @@ def test_repository_detects_ranking_id_collision(monkeypatch):
 
     with pytest.raises(DomainValidationError, match="conflicting"):
         repo.register_ranking(second)
+
+
+
+def make_interaction(pose_id, distance=3.0):
+    return PoseInteraction(
+        pose_id=pose_id,
+        kind=PoseInteractionKind.CONTACT,
+        receptor_atom_serial=1,
+        receptor_atom_name="CA",
+        receptor_residue_name="ALA",
+        receptor_chain="A",
+        receptor_residue_number="10",
+        ligand_atom_serial=2,
+        ligand_atom_name="C1",
+        distance_angstrom=distance,
+        method="pdbqt_geometric_interactions",
+        method_version="1",
+    )
+
+
+def test_repository_registers_lists_and_reuses_interactions():
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    interaction = make_interaction(pose.pose_id)
+    repo.register_pose(pose)
+
+    repo.register_interaction(interaction)
+    repo.register_interaction(interaction)
+
+    assert repo.list_interactions_for_pose(pose.pose_id) == (interaction,)
+    assert repo.list_interactions_for_pose("missing") == ()
+
+
+def test_repository_rejects_unknown_pose_for_interaction():
+    repo = InMemoryScientificResultRepository()
+
+    with pytest.raises(DomainValidationError, match="unknown pose"):
+        repo.register_interaction(make_interaction("missing"))
+
+
+def test_repository_detects_interaction_id_collision(monkeypatch):
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    repo.register_pose(pose)
+
+    monkeypatch.setattr(
+        interaction_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
+    )
+    first = make_interaction(pose.pose_id, distance=3.0)
+    second = make_interaction(pose.pose_id, distance=3.5)
+
+    assert first.interaction_id == second.interaction_id
+    repo.register_interaction(first)
+
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register_interaction(second)
