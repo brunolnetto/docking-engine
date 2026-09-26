@@ -632,6 +632,77 @@ class ReportLabPipelineReporter:
                 ]
             )
 
+        evidence_rows = [
+            [
+                "Rank",
+                "Δ score",
+                "RMSD Å",
+                "Cluster size",
+                "Ligand efficiency",
+                "Recurring cluster interactions",
+            ]
+        ]
+        for item in scientific.evidence:
+            recurrent = []
+            for support in item.cluster_hydrogen_bond_support:
+                if support.pose_count > 1:
+                    recurrent.append(
+                        f"H-bond {support.residue_label} "
+                        f"{support.pose_count}/{support.cluster_size}"
+                    )
+            for support in item.cluster_hydrophobic_support:
+                if support.pose_count > 1:
+                    recurrent.append(
+                        f"Hydrophobic {support.residue_label} "
+                        f"{support.pose_count}/{support.cluster_size}"
+                    )
+            evidence_rows.append(
+                [
+                    item.rank if item.rank is not None else "—",
+                    (
+                        "—"
+                        if item.delta_to_rank1 is None
+                        else f"{item.delta_to_rank1:.3f}"
+                    ),
+                    (
+                        "—"
+                        if item.rmsd_to_rank1 is None
+                        else f"{item.rmsd_to_rank1:.3f}"
+                    ),
+                    item.cluster_size if item.cluster_size is not None else "—",
+                    (
+                        "—"
+                        if item.ligand_efficiency is None
+                        else f"{item.ligand_efficiency:.3f}"
+                    ),
+                    ", ".join(recurrent) or "—",
+                ]
+            )
+        if len(evidence_rows) > 1:
+            story.extend(
+                [
+                    paragraph("Pose evidence summary", "DockingH2"),
+                    paragraph(
+                        "Independent score, geometry, efficiency, and "
+                        "interaction evidence are shown side by side; no "
+                        "composite evidence score is calculated.",
+                        "DockingSubtitle",
+                    ),
+                    striped_table(
+                        evidence_rows,
+                        [
+                            12 * mm,
+                            20 * mm,
+                            20 * mm,
+                            24 * mm,
+                            30 * mm,
+                            68 * mm,
+                        ],
+                        right_columns=(0, 1, 2, 3, 4),
+                    ),
+                ]
+            )
+
         story.extend(
             [
                 paragraph("Interpretation", "DockingH2"),
