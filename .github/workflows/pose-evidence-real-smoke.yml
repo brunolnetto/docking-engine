@@ -1,0 +1,71 @@
+name: Real Pose Evidence Smoke
+
+on:
+  push:
+    branches:
+      - automation/pose-evidence-real-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  real-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Run real docking and evidence report
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/evidence \
+            --run-id 1iep-evidence \
+            --pdf
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from moldock.reporting import PipelineReportBuilder, ScientificReportBuilder
+          from moldock.repositories import (
+              DuckLakeArtifactRepository,
+              DuckLakePreparedInputRepository,
+              DuckLakeRunManifestRepository,
+              DuckLakeTaskRepository,
+          )
+          from moldock.results import DuckLakeScientificResultRepository
+
+          root = Path(".moldock/evidence")
+          payload = json.loads((root / "reports" / "1iep-evidence.json").read_text())
+          task = payload["tasks"][0]
+          assert task["interactions"], "real run has no interaction observations"
+          assert task["metrics"], "real run has no pose metrics"
+          assert task["clusters"], "real run has no cluster assignments"
+          print("poses=", payload["pose_count"])
+          print("interactions=", len(task["interactions"]))
+          print("metrics=", len(task["metrics"]))
+          print("clusters=", len(task["clusters"]))
+          PY
+
+      - name: Run evidence/reporting tests
+        run: |
+          python -m pytest \
+            tests/reporting/test_scientific_report.py \
+            tests/reporting/test_pipeline_report.py -q
+
+      - name: Upload real report
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-pose-evidence-report
+          path: .moldock/evidence/reports/
+          retention-days: 7
