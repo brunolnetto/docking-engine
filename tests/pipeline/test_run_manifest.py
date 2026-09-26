@@ -170,3 +170,57 @@ def test_run_manifest_without_toolchain_survives_restart(tmp_path):
         assert restored.toolchain_snapshot is None
     finally:
         reopened.close()
+
+
+
+def test_run_manifest_get_returns_none_for_unknown_run(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        assert repo.get("missing") is None
+    finally:
+        repo.close()
+
+
+def test_run_manifest_repository_detects_duplicate_identity_rows(tmp_path):
+    repo = make_repo(tmp_path)
+    value = manifest()
+    try:
+        repo.register(value)
+        row = repo._connection.execute(
+            """
+            SELECT *
+            FROM moldock.run_manifests
+            WHERE run_id = ?
+            """,
+            [value.run_id],
+        ).fetchone()
+        placeholders = ", ".join(["?"] * len(row))
+        repo._connection.execute(
+            f"INSERT INTO moldock.run_manifests VALUES ({placeholders})",
+            list(row),
+        )
+
+        with pytest.raises(RuntimeError, match="duplicated"):
+            repo.get(value.run_id)
+    finally:
+        repo.close()
+
+
+def test_run_manifest_repository_detects_persisted_identity_corruption(tmp_path):
+    repo = make_repo(tmp_path)
+    value = manifest()
+    try:
+        repo.register(value)
+        repo._connection.execute(
+            """
+            UPDATE moldock.run_manifests
+            SET run_manifest_id = ?
+            WHERE run_id = ?
+            """,
+            ["run_manifest_corrupt", value.run_id],
+        )
+
+        with pytest.raises(RuntimeError, match="does not match"):
+            repo.get(value.run_id)
+    finally:
+        repo.close()
