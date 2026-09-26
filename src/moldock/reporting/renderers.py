@@ -82,6 +82,14 @@ class JsonPipelineReporter:
                         asdict(ranking)
                         for ranking in task.rankings
                     ],
+                    "metrics": [
+                        asdict(metric)
+                        for metric in task.metrics
+                    ],
+                    "clusters": [
+                        asdict(cluster)
+                        for cluster in task.clusters
+                    ],
                 }
                 for task in report.tasks
             ],

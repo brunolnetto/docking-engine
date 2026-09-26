@@ -18,6 +18,9 @@ class ScientificPoseResult:
     score_unit: str | None
     method: str
     method_version: str
+    rmsd_to_rank1: float | None = None
+    ligand_efficiency: float | None = None
+    cluster_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,9 +89,20 @@ class ScientificReportBuilder:
                 (ranking.pose_id, ranking.method): ranking.rank
                 for ranking in task.rankings
             }
+            metrics_by_pose: dict[str, dict[str, float]] = {}
+            for metric in task.metrics:
+                metrics_by_pose.setdefault(metric.pose_id, {})[
+                    metric.kind
+                ] = metric.value
+            clusters_by_pose = {
+                item.pose_id: item.cluster_id
+                for item in task.clusters
+                if item.method == "rank_ordered_leader_rmsd"
+            }
             for score in task.scores:
                 if not isfinite(score.value):
                     continue
+                pose_metrics = metrics_by_pose.get(score.pose_id, {})
                 rows.append(
                     ScientificPoseResult(
                         ligand_id=task.ligand_id,
@@ -99,6 +113,11 @@ class ScientificReportBuilder:
                         score_unit=score.unit,
                         method=score.method,
                         method_version=score.method_version,
+                        rmsd_to_rank1=pose_metrics.get("rmsd_to_rank1"),
+                        ligand_efficiency=pose_metrics.get(
+                            "ligand_efficiency"
+                        ),
+                        cluster_id=clusters_by_pose.get(score.pose_id),
                     )
                 )
 
@@ -237,16 +256,96 @@ class ScientificReportBuilder:
             )
 
         if poses:
+            analyzed = [
+                pose
+                for pose in poses
+                if pose.rmsd_to_rank1 is not None
+            ]
+            if analyzed:
+                clusters = {
+                    pose.cluster_id
+                    for pose in analyzed
+                    if pose.cluster_id is not None
+                }
+                rank1_cluster = next(
+                    (
+                        pose.cluster_id
+                        for pose in analyzed
+                        if pose.rank == 1
+                    ),
+                    None,
+                )
+                rank1_cluster_size = sum(
+                    pose.cluster_id == rank1_cluster
+                    for pose in analyzed
+                    if rank1_cluster is not None
+                )
+                interpretation.append(
+                    f"Structural analysis grouped {len(analyzed)} pose(s) "
+                    f"into {len(clusters)} RMSD cluster(s) at the configured "
+                    "2.0 Å threshold."
+                )
+                if rank1_cluster is not None:
+                    interpretation.append(
+                        f"The rank-1 cluster contains {rank1_cluster_size} "
+                        "pose(s), providing a direct view of pose convergence "
+                        "around the scoring-function preferred solution."
+                    )
+                    peer_count = max(0, rank1_cluster_size - 1)
+                    if peer_count:
+                        conclusion += (
+                            f" Structurally, rank 1 shares its 2.0 Å RMSD "
+                            f"cluster with {peer_count} additional pose(s)."
+                        )
+                    if len(clusters) > 1:
+                        conclusion += (
+                            f" The {len(analyzed)} analyzed poses span "
+                            f"{len(clusters)} clusters at this threshold, "
+                            "so the generated modes retain substantial "
+                            "structural diversity."
+                        )
+                limitations.append(
+                    "RMSD v1 is a heavy-atom, atom-order, direct coordinate "
+                    "RMSD in the receptor frame; it is not symmetry-corrected "
+                    "and does not perform an additional structural alignment."
+                )
+            else:
+                limitations.append(
+                    "No durable RMSD or clustering observations were available."
+                )
+
+            efficient = [
+                pose
+                for pose in poses
+                if pose.ligand_efficiency is not None
+            ]
+            if efficient:
+                top = next(
+                    (pose for pose in efficient if pose.rank == 1),
+                    efficient[0],
+                )
+                interpretation.append(
+                    f"Rank 1 ligand efficiency was "
+                    f"{top.ligand_efficiency:g} kcal/mol/heavy_atom, derived "
+                    "from the Vina score and ligand heavy-atom count."
+                )
+                limitations.append(
+                    "Docking-derived ligand efficiency is a size-normalized "
+                    "scoring descriptor, not an experimental thermodynamic "
+                    "ligand efficiency measurement."
+                )
+
             limitations.append(
-                "This report does not yet include structural validation such "
-                "as RMSD, pose clustering, residue contacts, hydrogen bonds, "
-                "salt bridges, or ligand-efficiency analysis."
+                "Protein-ligand contact chemistry is not yet included: "
+                "hydrogen bonds, hydrophobic contacts, salt bridges, and "
+                "residue-level interaction fingerprints remain the next "
+                "analysis layer."
             )
             next_steps.extend(
                 [
-                    "Inspect the highest-ranked poses structurally in the binding site.",
-                    "Add RMSD or pose-clustering analysis before treating score separation as pose convergence.",
+                    "Inspect the leading RMSD cluster structurally in the binding site.",
                     "Characterize protein-ligand contacts for the leading pose families.",
+                    "Add chemistry-aware hydrogen-bond and hydrophobic-contact profiling.",
                 ]
             )
         if report.failed_count:

@@ -5,12 +5,15 @@ from pathlib import Path
 from moldock.domain import (
     DomainValidationError,
     Pose,
+    PoseClusterAssignment,
+    PoseMetric,
+    PoseMetricKind,
     PoseRanking,
     PoseScore,
     ScoreKind,
 )
-from moldock.repositories.metadata_codec import decode_metadata, encode_metadata
 from moldock.repositories.ducklake_base import DuckLakeRepositoryBase
+from moldock.repositories.metadata_codec import decode_metadata, encode_metadata
 
 
 class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
@@ -68,6 +71,32 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
                 )
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.pose_metrics (
+                    metric_id VARCHAR,
+                    pose_id VARCHAR,
+                    kind VARCHAR,
+                    value DOUBLE,
+                    unit VARCHAR,
+                    method VARCHAR,
+                    method_version VARCHAR,
+                    metadata_json VARCHAR
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.pose_cluster_assignments (
+                    assignment_id VARCHAR,
+                    pose_id VARCHAR,
+                    cluster_id VARCHAR,
+                    method VARCHAR,
+                    method_version VARCHAR,
+                    metadata_json VARCHAR
+                )
+                """
+            )
 
         self._run_write(operation)
 
@@ -100,10 +129,7 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
 
     def register_score(self, score: PoseScore) -> None:
         def operation() -> None:
-            if not self._pose_rows(score.pose_id):
-                raise DomainValidationError(
-                    f"cannot register score for unknown pose: {score.pose_id}"
-                )
+            self._require_pose(score.pose_id, "score")
             rows = self._score_rows(score.score_id)
             if rows:
                 current = self._score_from_row(rows[0])
@@ -133,10 +159,7 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
 
     def register_ranking(self, ranking: PoseRanking) -> None:
         def operation() -> None:
-            if not self._pose_rows(ranking.pose_id):
-                raise DomainValidationError(
-                    f"cannot register ranking for unknown pose: {ranking.pose_id}"
-                )
+            self._require_pose(ranking.pose_id, "ranking")
             rows = self._ranking_rows(ranking.ranking_id)
             if rows:
                 current = self._ranking_from_row(rows[0])
@@ -155,6 +178,71 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
                     ranking.pose_id,
                     ranking.rank,
                     ranking.method,
+                ],
+            )
+
+        self._run_write(operation)
+
+    def register_metric(self, metric: PoseMetric) -> None:
+        def operation() -> None:
+            self._require_pose(metric.pose_id, "metric")
+            rows = self._metric_rows(metric.metric_id)
+            if rows:
+                current = self._metric_from_row(rows[0])
+                if current != metric:
+                    raise DomainValidationError(
+                        "metric identity already exists with conflicting metadata"
+                    )
+                return
+            self._connection.execute(
+                """
+                INSERT INTO moldock.pose_metrics
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    metric.metric_id,
+                    metric.pose_id,
+                    metric.kind.value,
+                    metric.value,
+                    metric.unit,
+                    metric.method,
+                    metric.method_version,
+                    encode_metadata(metric.metadata),
+                ],
+            )
+
+        self._run_write(operation)
+
+    def register_cluster_assignment(
+        self,
+        assignment: PoseClusterAssignment,
+    ) -> None:
+        def operation() -> None:
+            self._require_pose(
+                assignment.pose_id,
+                "cluster assignment",
+            )
+            rows = self._cluster_rows(assignment.assignment_id)
+            if rows:
+                current = self._cluster_from_row(rows[0])
+                if current != assignment:
+                    raise DomainValidationError(
+                        "cluster assignment identity already exists "
+                        "with conflicting metadata"
+                    )
+                return
+            self._connection.execute(
+                """
+                INSERT INTO moldock.pose_cluster_assignments
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    assignment.assignment_id,
+                    assignment.pose_id,
+                    assignment.cluster_id,
+                    assignment.method,
+                    assignment.method_version,
+                    encode_metadata(assignment.metadata),
                 ],
             )
 
@@ -210,11 +298,7 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
     ) -> tuple[PoseRanking, ...]:
         rows = self._connection.execute(
             """
-            SELECT
-                ranking_id,
-                pose_id,
-                rank,
-                method
+            SELECT ranking_id, pose_id, rank, method
             FROM moldock.pose_rankings
             WHERE pose_id = ?
             ORDER BY rank, ranking_id
@@ -222,6 +306,56 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
             [pose_id],
         ).fetchall()
         return tuple(self._ranking_from_row(row) for row in rows)
+
+    def list_metrics_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseMetric, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT
+                metric_id,
+                pose_id,
+                kind,
+                value,
+                unit,
+                method,
+                method_version,
+                metadata_json
+            FROM moldock.pose_metrics
+            WHERE pose_id = ?
+            ORDER BY metric_id
+            """,
+            [pose_id],
+        ).fetchall()
+        return tuple(self._metric_from_row(row) for row in rows)
+
+    def list_cluster_assignments_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseClusterAssignment, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT
+                assignment_id,
+                pose_id,
+                cluster_id,
+                method,
+                method_version,
+                metadata_json
+            FROM moldock.pose_cluster_assignments
+            WHERE pose_id = ?
+            ORDER BY assignment_id
+            """,
+            [pose_id],
+        ).fetchall()
+        return tuple(self._cluster_from_row(row) for row in rows)
+
+    def _require_pose(self, pose_id: str, object_name: str) -> None:
+        if not self._pose_rows(pose_id):
+            raise DomainValidationError(
+                f"cannot register {object_name} for unknown pose: {pose_id}"
+            )
 
     def _pose_rows(self, pose_id: str):
         return self._connection.execute(
@@ -267,6 +401,40 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
             [ranking_id],
         ).fetchall()
 
+    def _metric_rows(self, metric_id: str):
+        return self._connection.execute(
+            """
+            SELECT
+                metric_id,
+                pose_id,
+                kind,
+                value,
+                unit,
+                method,
+                method_version,
+                metadata_json
+            FROM moldock.pose_metrics
+            WHERE metric_id = ?
+            """,
+            [metric_id],
+        ).fetchall()
+
+    def _cluster_rows(self, assignment_id: str):
+        return self._connection.execute(
+            """
+            SELECT
+                assignment_id,
+                pose_id,
+                cluster_id,
+                method,
+                method_version,
+                metadata_json
+            FROM moldock.pose_cluster_assignments
+            WHERE assignment_id = ?
+            """,
+            [assignment_id],
+        ).fetchall()
+
     @staticmethod
     def _pose_from_row(row) -> Pose:
         return Pose(
@@ -295,4 +463,26 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
             pose_id=row[1],
             rank=row[2],
             method=row[3],
+        )
+
+    @staticmethod
+    def _metric_from_row(row) -> PoseMetric:
+        return PoseMetric(
+            pose_id=row[1],
+            kind=PoseMetricKind(row[2]),
+            value=row[3],
+            unit=row[4],
+            method=row[5],
+            method_version=row[6],
+            metadata=decode_metadata(row[7]),
+        )
+
+    @staticmethod
+    def _cluster_from_row(row) -> PoseClusterAssignment:
+        return PoseClusterAssignment(
+            pose_id=row[1],
+            cluster_id=row[2],
+            method=row[3],
+            method_version=row[4],
+            metadata=decode_metadata(row[5]),
         )

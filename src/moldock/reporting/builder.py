@@ -10,6 +10,8 @@ from moldock.repositories import (
 from moldock.results import ScientificResultRepository
 
 from .model import (
+    ClusterObservation,
+    MetricObservation,
     PipelineReport,
     RankingObservation,
     ScoreObservation,
@@ -130,6 +132,8 @@ class PipelineReportBuilder:
         pose_ids: list[str] = []
         scores: list[ScoreObservation] = []
         rankings: list[RankingObservation] = []
+        metrics: list[MetricObservation] = []
+        clusters: list[ClusterObservation] = []
 
         for attempt in attempts:
             artifact_ids.extend(
@@ -168,6 +172,30 @@ class PipelineReportBuilder:
                             method=ranking.method,
                         )
                     )
+                for metric in self._science.list_metrics_for_pose(pose.pose_id):
+                    metrics.append(
+                        MetricObservation(
+                            metric_id=metric.metric_id,
+                            pose_id=metric.pose_id,
+                            kind=metric.kind.value,
+                            value=metric.value,
+                            unit=metric.unit,
+                            method=metric.method,
+                            method_version=metric.method_version,
+                        )
+                    )
+                for assignment in self._science.list_cluster_assignments_for_pose(
+                    pose.pose_id
+                ):
+                    clusters.append(
+                        ClusterObservation(
+                            assignment_id=assignment.assignment_id,
+                            pose_id=assignment.pose_id,
+                            cluster_id=assignment.cluster_id,
+                            method=assignment.method,
+                            method_version=assignment.method_version,
+                        )
+                    )
 
         return TaskPipelineReport(
             task_id=task.task_id,
@@ -202,6 +230,27 @@ class PipelineReportBuilder:
                         item.method,
                         item.rank,
                         item.ranking_id,
+                    ),
+                )
+            ),
+            metrics=tuple(
+                sorted(
+                    metrics,
+                    key=lambda item: (
+                        item.pose_id,
+                        item.kind,
+                        item.method,
+                        item.metric_id,
+                    ),
+                )
+            ),
+            clusters=tuple(
+                sorted(
+                    clusters,
+                    key=lambda item: (
+                        item.pose_id,
+                        item.method,
+                        item.cluster_id,
                     ),
                 )
             ),

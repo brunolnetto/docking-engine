@@ -1,3 +1,9 @@
+from .analysis import (
+    PdbqtPoseGeometryParser,
+    PoseGeometry,
+    PoseScientificAnalyzer,
+    direct_rmsd,
+)
 from .ducklake_repository import DuckLakeScientificResultRepository
 from .interpreter import (
     NullScientificResultInterpreter,
@@ -24,4 +30,8 @@ __all__ = [
     "ScientificResultRepository",
     "InMemoryScientificResultRepository",
     "DuckLakeScientificResultRepository",
+    "PoseGeometry",
+    "PdbqtPoseGeometryParser",
+    "PoseScientificAnalyzer",
+    "direct_rmsd",
 ]

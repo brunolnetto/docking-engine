@@ -7,6 +7,8 @@ from typing import Protocol, runtime_checkable
 from moldock.domain import (
     DomainValidationError,
     Pose,
+    PoseClusterAssignment,
+    PoseMetric,
     PoseRanking,
     PoseScore,
 )
@@ -17,9 +19,19 @@ class ScientificResultRepository(Protocol):
     def register_pose(self, pose: Pose) -> None: ...
     def register_score(self, score: PoseScore) -> None: ...
     def register_ranking(self, ranking: PoseRanking) -> None: ...
+    def register_metric(self, metric: PoseMetric) -> None: ...
+    def register_cluster_assignment(
+        self,
+        assignment: PoseClusterAssignment,
+    ) -> None: ...
     def list_poses_for_attempt(self, attempt_id: str) -> tuple[Pose, ...]: ...
     def list_scores_for_pose(self, pose_id: str) -> tuple[PoseScore, ...]: ...
     def list_rankings_for_pose(self, pose_id: str) -> tuple[PoseRanking, ...]: ...
+    def list_metrics_for_pose(self, pose_id: str) -> tuple[PoseMetric, ...]: ...
+    def list_cluster_assignments_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseClusterAssignment, ...]: ...
 
 
 class InMemoryScientificResultRepository:
@@ -27,9 +39,13 @@ class InMemoryScientificResultRepository:
         self._poses: dict[str, Pose] = {}
         self._scores: dict[str, PoseScore] = {}
         self._rankings: dict[str, PoseRanking] = {}
+        self._metrics: dict[str, PoseMetric] = {}
+        self._cluster_assignments: dict[str, PoseClusterAssignment] = {}
         self._pose_ids_by_attempt: dict[str, list[str]] = defaultdict(list)
         self._score_ids_by_pose: dict[str, list[str]] = defaultdict(list)
         self._ranking_ids_by_pose: dict[str, list[str]] = defaultdict(list)
+        self._metric_ids_by_pose: dict[str, list[str]] = defaultdict(list)
+        self._cluster_ids_by_pose: dict[str, list[str]] = defaultdict(list)
         self._lock = RLock()
 
     def register_pose(self, pose: Pose) -> None:
@@ -78,6 +94,44 @@ class InMemoryScientificResultRepository:
                     "ranking identity already exists with conflicting metadata"
                 )
 
+    def register_metric(self, metric: PoseMetric) -> None:
+        with self._lock:
+            if metric.pose_id not in self._poses:
+                raise DomainValidationError(
+                    f"cannot register metric for unknown pose: {metric.pose_id}"
+                )
+            existing = self._metrics.get(metric.metric_id)
+            if existing is None:
+                self._metrics[metric.metric_id] = metric
+                self._metric_ids_by_pose[metric.pose_id].append(metric.metric_id)
+                return
+            if existing != metric:
+                raise DomainValidationError(
+                    "metric identity already exists with conflicting metadata"
+                )
+
+    def register_cluster_assignment(
+        self,
+        assignment: PoseClusterAssignment,
+    ) -> None:
+        with self._lock:
+            if assignment.pose_id not in self._poses:
+                raise DomainValidationError(
+                    "cannot register cluster assignment for unknown pose: "
+                    f"{assignment.pose_id}"
+                )
+            existing = self._cluster_assignments.get(assignment.assignment_id)
+            if existing is None:
+                self._cluster_assignments[assignment.assignment_id] = assignment
+                self._cluster_ids_by_pose[assignment.pose_id].append(
+                    assignment.assignment_id
+                )
+                return
+            if existing != assignment:
+                raise DomainValidationError(
+                    "cluster assignment identity already exists with conflicting metadata"
+                )
+
     def list_poses_for_attempt(self, attempt_id: str) -> tuple[Pose, ...]:
         with self._lock:
             poses = (
@@ -102,3 +156,25 @@ class InMemoryScientificResultRepository:
                 for ranking_id in self._ranking_ids_by_pose.get(pose_id, ())
             )
             return tuple(sorted(rankings, key=lambda ranking: ranking.rank))
+
+    def list_metrics_for_pose(self, pose_id: str) -> tuple[PoseMetric, ...]:
+        with self._lock:
+            return tuple(
+                self._metrics[metric_id]
+                for metric_id in sorted(
+                    self._metric_ids_by_pose.get(pose_id, ())
+                )
+            )
+
+    def list_cluster_assignments_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseClusterAssignment, ...]:
+        with self._lock:
+            return tuple(
+                self._cluster_assignments[assignment_id]
+                for assignment_id in sorted(
+                    self._cluster_ids_by_pose.get(pose_id, ())
+                )
+            )
+

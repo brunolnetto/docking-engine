@@ -4,6 +4,9 @@ import moldock.domain.result as result_module
 from moldock.domain import (
     DomainValidationError,
     Pose,
+    PoseClusterAssignment,
+    PoseMetric,
+    PoseMetricKind,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -66,11 +69,27 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         rank=1,
         method="vina_affinity",
     )
+    metric = PoseMetric(
+        pose_id=pose.pose_id,
+        kind=PoseMetricKind.RMSD_TO_RANK1,
+        value=0.0,
+        unit="angstrom",
+        method="pdbqt_atom_order_direct_rmsd",
+        method_version="1",
+    )
+    cluster = PoseClusterAssignment(
+        pose_id=pose.pose_id,
+        cluster_id="cluster_1",
+        method="rank_ordered_leader_rmsd",
+        method_version="1",
+    )
 
     repo = make_repo(tmp_path)
     repo.register_pose(pose)
     repo.register_score(score)
     repo.register_ranking(ranking)
+    repo.register_metric(metric)
+    repo.register_cluster_assignment(cluster)
     repo.close()
 
     reopened = make_repo(tmp_path)
@@ -78,6 +97,10 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         assert reopened.list_poses_for_attempt("attempt_1") == (pose,)
         assert reopened.list_scores_for_pose(pose.pose_id) == (score,)
         assert reopened.list_rankings_for_pose(pose.pose_id) == (ranking,)
+        assert reopened.list_metrics_for_pose(pose.pose_id) == (metric,)
+        assert reopened.list_cluster_assignments_for_pose(
+            pose.pose_id
+        ) == (cluster,)
     finally:
         reopened.close()
 
