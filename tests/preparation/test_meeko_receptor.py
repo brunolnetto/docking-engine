@@ -50,8 +50,12 @@ class RecordingRunner:
         input_path = Path(command[command.index("--read_pdb") + 1])
         assert input_path.read_bytes()
         if self.write_output:
-            output_path = Path(command[command.index("--write_pdbqt") + 1])
-            output_path.write_bytes(b"ATOM PDBQT\n")
+            basename = Path(
+                command[command.index("--output_basename") + 1]
+            )
+            Path(str(basename) + ".pdbqt").write_bytes(
+                b"ATOM PDBQT\n"
+            )
         return CompletedProcess(command, self.returncode, self.stdout, self.stderr)
 
 
@@ -93,7 +97,9 @@ def test_meeko_receptor_preparer_builds_cli_and_returns_identity():
     assert command[0] == "mk_prepare_receptor-custom"
     assert timeout is None
     assert Path(command[command.index("--read_pdb") + 1]).suffix == ".pdb"
-    assert Path(command[command.index("--write_pdbqt") + 1]).parent == cwd
+    basename = Path(command[command.index("--output_basename") + 1])
+    assert basename.parent == cwd
+    assert "--write_pdbqt" in command
     assert "--delete_bad_res" in command
     assert command[command.index("--default_altloc") + 1] == "A"
     assert "--compute_charges" in command
