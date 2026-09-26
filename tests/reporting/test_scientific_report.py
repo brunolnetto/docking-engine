@@ -86,6 +86,7 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert any("1.957 kcal/mol" in item for item in report.narrative.interpretation)
     assert any("do not by themselves establish experimental binding affinity" in item for item in report.narrative.limitations)
     assert any("RMSD" in item for item in report.narrative.next_steps)
+    assert "prioritizing rank 1 for structural follow-up" in report.narrative.conclusion
 
 
 def test_scientific_report_limits_interpretation_for_failed_experiment():
@@ -121,6 +122,7 @@ def test_scientific_report_limits_interpretation_for_failed_experiment():
     assert report.score_spread is None
     assert any("descriptive reporting only" in item for item in report.narrative.interpretation)
     assert report.narrative.next_steps[0].startswith("Resolve failed docking tasks")
+    assert report.narrative.conclusion.startswith("No scientific docking conclusion")
 
 
 def test_scientific_report_does_not_infer_cross_method_order():
@@ -170,3 +172,4 @@ def test_scientific_report_does_not_infer_cross_method_order():
     assert report.completed is True
     assert report.poses[0].score_value == 0.123456789
     assert any("no cross-method ordering was inferred" in item for item in report.narrative.interpretation)
+    assert "no cross-method conclusion" in report.narrative.conclusion
