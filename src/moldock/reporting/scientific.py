@@ -21,6 +21,11 @@ class ScientificPoseResult:
     rmsd_to_rank1: float | None = None
     ligand_efficiency: float | None = None
     cluster_id: str | None = None
+    interaction_counts: tuple[tuple[str, int], ...] = ()
+    contact_residues: tuple[str, ...] = ()
+    hydrogen_bond_residues: tuple[str, ...] = ()
+    hydrophobic_residues: tuple[str, ...] = ()
+    salt_bridge_residues: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,10 +104,30 @@ class ScientificReportBuilder:
                 for item in task.clusters
                 if item.method == "rank_ordered_leader_rmsd"
             }
+            interactions_by_pose: dict[str, list] = {}
+            for interaction in task.interactions:
+                interactions_by_pose.setdefault(
+                    interaction.pose_id,
+                    [],
+                ).append(interaction)
             for score in task.scores:
                 if not isfinite(score.value):
                     continue
                 pose_metrics = metrics_by_pose.get(score.pose_id, {})
+                pose_interactions = interactions_by_pose.get(
+                    score.pose_id,
+                    [],
+                )
+                counts: dict[str, int] = {}
+                residues_by_kind: dict[str, set[str]] = {}
+                for interaction in pose_interactions:
+                    counts[interaction.kind] = (
+                        counts.get(interaction.kind, 0) + 1
+                    )
+                    residues_by_kind.setdefault(
+                        interaction.kind,
+                        set(),
+                    ).add(interaction.receptor_residue_id)
                 rows.append(
                     ScientificPoseResult(
                         ligand_id=task.ligand_id,
@@ -118,6 +143,34 @@ class ScientificReportBuilder:
                             "ligand_efficiency"
                         ),
                         cluster_id=clusters_by_pose.get(score.pose_id),
+                        interaction_counts=tuple(sorted(counts.items())),
+                        contact_residues=tuple(
+                            sorted(residues_by_kind.get("contact", set()))
+                        ),
+                        hydrogen_bond_residues=tuple(
+                            sorted(
+                                residues_by_kind.get(
+                                    "hydrogen_bond",
+                                    set(),
+                                )
+                            )
+                        ),
+                        hydrophobic_residues=tuple(
+                            sorted(
+                                residues_by_kind.get(
+                                    "hydrophobic",
+                                    set(),
+                                )
+                            )
+                        ),
+                        salt_bridge_residues=tuple(
+                            sorted(
+                                residues_by_kind.get(
+                                    "salt_bridge",
+                                    set(),
+                                )
+                            )
+                        ),
                     )
                 )
 
@@ -335,19 +388,97 @@ class ScientificReportBuilder:
                     "ligand efficiency measurement."
                 )
 
-            limitations.append(
-                "Protein-ligand contact chemistry is not yet included: "
-                "hydrogen bonds, hydrophobic contacts, salt bridges, and "
-                "residue-level interaction fingerprints remain the next "
-                "analysis layer."
+            top_pose = next(
+                (pose for pose in poses if pose.rank == 1),
+                None,
             )
-            next_steps.extend(
-                [
-                    "Inspect the leading RMSD cluster structurally in the binding site.",
-                    "Characterize protein-ligand contacts for the leading pose families.",
-                    "Add chemistry-aware hydrogen-bond and hydrophobic-contact profiling.",
+            if top_pose is not None and top_pose.interaction_counts:
+                counts = dict(top_pose.interaction_counts)
+                interpretation.append(
+                    "Rank 1 protein-ligand interaction profile contained "
+                    f"{counts.get('contact', 0)} contacting residue(s), "
+                    f"{counts.get('hydrogen_bond', 0)} hydrogen bond(s), "
+                    f"{counts.get('hydrophobic', 0)} hydrophobic contact(s), "
+                    f"and {counts.get('salt_bridge', 0)} putative salt bridge(s)."
+                )
+                if top_pose.hydrogen_bond_residues:
+                    interpretation.append(
+                        "Rank 1 hydrogen-bond partners included "
+                        + ", ".join(top_pose.hydrogen_bond_residues[:8])
+                        + "."
+                    )
+                if top_pose.hydrophobic_residues:
+                    interpretation.append(
+                        "Rank 1 hydrophobic-contact residues included "
+                        + ", ".join(top_pose.hydrophobic_residues[:8])
+                        + "."
+                    )
+                if top_pose.salt_bridge_residues:
+                    interpretation.append(
+                        "Rank 1 putative salt-bridge residues included "
+                        + ", ".join(top_pose.salt_bridge_residues[:8])
+                        + "."
+                    )
+
+                cluster_members = [
+                    pose
+                    for pose in poses
+                    if (
+                        top_pose.cluster_id is not None
+                        and pose.cluster_id == top_pose.cluster_id
+                    )
                 ]
-            )
+                if len(cluster_members) > 1:
+                    contact_sets = [
+                        set(pose.contact_residues)
+                        for pose in cluster_members
+                        if pose.contact_residues
+                    ]
+                    consensus = (
+                        set.intersection(*contact_sets)
+                        if len(contact_sets) == len(cluster_members)
+                        else set()
+                    )
+                    if consensus:
+                        interpretation.append(
+                            "Residues contacted by every pose in the rank-1 "
+                            "RMSD cluster included "
+                            + ", ".join(sorted(consensus)[:8])
+                            + "."
+                        )
+                limitations.extend(
+                    [
+                        (
+                            "Interaction profiling v1 is PDBQT-native and "
+                            "rule-based. Contact and hydrophobic assignments "
+                            "are distance heuristics; hydrogen bonds require "
+                            "explicit HD hydrogens plus donor/acceptor geometry."
+                        ),
+                        (
+                            "Salt bridges are reported as putative because "
+                            "ligand charge state is inferred from PDBQT partial "
+                            "charges rather than a full chemistry-aware formal-"
+                            "charge model."
+                        ),
+                    ]
+                )
+                next_steps.extend(
+                    [
+                        "Inspect the leading RMSD cluster structurally in the binding site.",
+                        "Validate the leading interaction fingerprint with a chemistry-aware profiler such as PLIP or ProLIF.",
+                        "Compare interaction persistence across the leading pose cluster rather than relying on rank 1 alone.",
+                    ]
+                )
+            else:
+                limitations.append(
+                    "No durable protein-ligand interaction observations were available."
+                )
+                next_steps.extend(
+                    [
+                        "Inspect the leading RMSD cluster structurally in the binding site.",
+                        "Generate protein-ligand interaction fingerprints for the leading pose families.",
+                    ]
+                )
         if report.failed_count:
             conclusion = (
                 "No scientific docking conclusion should be drawn until the "
