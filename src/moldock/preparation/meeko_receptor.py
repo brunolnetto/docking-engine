@@ -86,6 +86,7 @@ class MeekoReceptorPreparer:
         with TemporaryDirectory(prefix="moldock-meeko-receptor-") as tmp:
             cwd = Path(tmp)
             source = cwd / "receptor.pdb"
+            output_basename = cwd / "receptor"
             output = cwd / "receptor.pdbqt"
             source.write_bytes(request.content)
 
@@ -93,21 +94,21 @@ class MeekoReceptorPreparer:
                 self._executable,
                 "--read_pdb",
                 str(source),
-                "--write_pdbqt",
-                str(output),
+                "--output_basename",
+                str(output_basename),
             ]
             self._append_parameters(command, request.protocol.parameters)
+            command.append("--write_pdbqt")
 
             try:
-                process = self._runner(
-                    command,
-                    cwd=cwd,
-                    timeout=(
-                        self._execution_timeout.total_seconds()
-                        if self._execution_timeout is not None
-                        else None
-                    ),
-                )
+                if self._execution_timeout is None:
+                    process = self._runner(command, cwd=cwd)
+                else:
+                    process = self._runner(
+                        command,
+                        cwd=cwd,
+                        timeout=self._execution_timeout.total_seconds(),
+                    )
             except subprocess.TimeoutExpired as exc:
                 raise MeekoReceptorPreparationTimeoutError(
                     "Meeko receptor preparation timed out"
