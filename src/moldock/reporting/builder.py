@@ -11,6 +11,7 @@ from moldock.results import ScientificResultRepository
 
 from .model import (
     ClusterObservation,
+    InteractionObservation,
     MetricObservation,
     PipelineReport,
     RankingObservation,
@@ -134,6 +135,7 @@ class PipelineReportBuilder:
         rankings: list[RankingObservation] = []
         metrics: list[MetricObservation] = []
         clusters: list[ClusterObservation] = []
+        interactions: list[InteractionObservation] = []
 
         for attempt in attempts:
             artifact_ids.extend(
@@ -196,6 +198,24 @@ class PipelineReportBuilder:
                             method_version=assignment.method_version,
                         )
                     )
+                for interaction in self._science.list_interactions_for_pose(
+                    pose.pose_id
+                ):
+                    interactions.append(
+                        InteractionObservation(
+                            interaction_id=interaction.interaction_id,
+                            pose_id=interaction.pose_id,
+                            kind=interaction.kind.value,
+                            receptor_residue=interaction.receptor_residue,
+                            receptor_atom=interaction.receptor_atom,
+                            ligand_atom=interaction.ligand_atom,
+                            distance_angstrom=interaction.distance_angstrom,
+                            angle_degrees=interaction.angle_degrees,
+                            protein_is_donor=interaction.protein_is_donor,
+                            method=interaction.method,
+                            method_version=interaction.method_version,
+                        )
+                    )
 
         return TaskPipelineReport(
             task_id=task.task_id,
@@ -251,6 +271,18 @@ class PipelineReportBuilder:
                         item.pose_id,
                         item.method,
                         item.cluster_id,
+                    ),
+                )
+            ),
+            interactions=tuple(
+                sorted(
+                    interactions,
+                    key=lambda item: (
+                        item.pose_id,
+                        item.kind,
+                        item.receptor_residue,
+                        item.distance_angstrom,
+                        item.interaction_id,
                     ),
                 )
             ),
