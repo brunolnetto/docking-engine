@@ -38,3 +38,15 @@ __all__ += [
     "MeekoReceptorPreparationTimeoutError",
     "MeekoReceptorPreparer",
 ]
+
+from .meeko_ligand import (
+    MeekoLigandPreparationError,
+    MeekoLigandPreparationTimeoutError,
+    MeekoLigandPreparer,
+)
+
+__all__ += [
+    "MeekoLigandPreparationError",
+    "MeekoLigandPreparationTimeoutError",
+    "MeekoLigandPreparer",
+]
