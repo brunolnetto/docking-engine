@@ -529,7 +529,7 @@ class ReportLabPipelineReporter:
                 delta = (
                     ""
                     if rank_one is None or pose.rank is None
-                    else _score_value(pose.score_value - rank_one)
+                    else f"{pose.score_value - rank_one:.3f}"
                 )
                 score_rows.append(
                     [
