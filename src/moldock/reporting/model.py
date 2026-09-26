@@ -37,6 +37,29 @@ class MetricObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionObservation:
+    interaction_id: str
+    pose_id: str
+    kind: str
+    receptor_chain_id: str
+    receptor_residue_name: str
+    receptor_residue_number: str
+    receptor_atom_name: str
+    ligand_atom_name: str
+    distance_angstrom: float
+    method: str
+    method_version: str
+
+    @property
+    def receptor_residue_id(self) -> str:
+        return (
+            f"{self.receptor_chain_id}:"
+            f"{self.receptor_residue_name}"
+            f"{self.receptor_residue_number}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterObservation:
     assignment_id: str
     pose_id: str
@@ -59,6 +82,7 @@ class TaskPipelineReport:
     scores: tuple[ScoreObservation, ...]
     rankings: tuple[RankingObservation, ...]
     metrics: tuple[MetricObservation, ...] = ()
+    interactions: tuple[InteractionObservation, ...] = ()
     clusters: tuple[ClusterObservation, ...] = ()
 
     @property
