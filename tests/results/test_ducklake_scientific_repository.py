@@ -7,6 +7,8 @@ from moldock.domain import (
     PoseClusterAssignment,
     PoseMetric,
     PoseMetricKind,
+    PoseInteraction,
+    PoseInteractionKind,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -83,12 +85,26 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         method="rank_ordered_leader_rmsd",
         method_version="1",
     )
+    interaction = PoseInteraction(
+        pose_id=pose.pose_id,
+        kind=PoseInteractionKind.HYDROGEN_BOND,
+        receptor_chain_id="A",
+        receptor_residue_name="THR",
+        receptor_residue_number="315",
+        receptor_atom_name="OG1",
+        ligand_atom_name="N1",
+        distance_angstrom=2.9,
+        method="pdbqt_geometric_interactions",
+        method_version="1",
+        metadata={"donor_angle_degrees": 145.0},
+    )
 
     repo = make_repo(tmp_path)
     repo.register_pose(pose)
     repo.register_score(score)
     repo.register_ranking(ranking)
     repo.register_metric(metric)
+    repo.register_interaction(interaction)
     repo.register_cluster_assignment(cluster)
     repo.close()
 
@@ -98,6 +114,9 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         assert reopened.list_scores_for_pose(pose.pose_id) == (score,)
         assert reopened.list_rankings_for_pose(pose.pose_id) == (ranking,)
         assert reopened.list_metrics_for_pose(pose.pose_id) == (metric,)
+        assert reopened.list_interactions_for_pose(pose.pose_id) == (
+            interaction,
+        )
         assert reopened.list_cluster_assignments_for_pose(
             pose.pose_id
         ) == (cluster,)
