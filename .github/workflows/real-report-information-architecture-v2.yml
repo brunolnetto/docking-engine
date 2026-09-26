@@ -1,0 +1,71 @@
+name: Real Report Information Architecture V2
+
+on:
+  push:
+    branches:
+      - automation/real-report-information-architecture-v2
+
+permissions:
+  contents: read
+
+jobs:
+  real-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Generate redesigned real report
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/report-ia-v2 \
+            --run-id 1iep-report-ia-v2 \
+            --pdf
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".moldock/report-ia-v2/reports")
+          payload = json.loads((root / "1iep-report-ia-v2.json").read_text())
+          config = payload["configuration"]
+
+          assert config["docking_protocol"]["parameters"]["seed"] == 42
+          assert config["docking_protocol"]["parameters"]["exhaustiveness"] == 8
+          assert config["docking_protocol"]["parameters"]["num_modes"] == 9
+          assert config["docking_protocol"]["search_box"]["center"] == [15.19, 53.903, 16.917]
+          assert config["docking_protocol"]["search_box"]["size"] == [20.0, 20.0, 20.0]
+          assert config["analysis_protocol"]["clustering"]["threshold_angstrom"] == 2.0
+          assert config["analysis_protocol"]["interactions"]["contact_cutoff_angstrom"] == 4.0
+          assert config["analysis_protocol"]["interactions"]["hydrophobic_cutoff_angstrom"] == 4.5
+          assert config["analysis_protocol"]["interactions"]["hydrogen_bond_angle_degrees"] == 120.0
+          assert config["analysis_protocol"]["interactions"]["salt_bridge_cutoff_angstrom"] == 5.5
+
+          task = payload["tasks"][0]
+          by_kind = {}
+          for interaction in task["interactions"]:
+              by_kind[interaction["kind"]] = by_kind.get(interaction["kind"], 0) + 1
+
+          print("pose_count=", payload["pose_count"])
+          print("score_count=", payload["score_count"])
+          print("interaction_counts=", by_kind)
+          print("configuration=", json.dumps(config, sort_keys=True))
+          PY
+
+      - name: Upload redesigned report bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-report-ia-v2
+          path: .moldock/report-ia-v2/reports/
+          retention-days: 7
