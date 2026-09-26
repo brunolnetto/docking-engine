@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -298,3 +299,71 @@ def test_spec_rejects_preparation_protocol_mismatch():
                 ),
             ),
         )
+
+
+class ChangedLigandPreparer:
+    def __init__(self):
+        self.calls = 0
+
+    def prepare(self, request):
+        self.calls += 1
+        return (
+            LigandPreparationArtifact(
+                ligand_id=request.ligand_id,
+                preparation_id=request.protocol.preparation_id,
+                microstate_id="micro_1",
+                conformer_id="conf_new",
+                pdbqt=b"LIG-NEW",
+            ),
+        )
+
+
+def test_new_manifest_does_not_execute_obsolete_tasks_from_same_experiment(tmp_path):
+    store, prepared, tasks, artifacts, science = make_stack(tmp_path)
+    backend = VinaLikeBackend()
+
+    first_pipeline = OfflineDockingPipeline(
+        receptor_preparer=FakeReceptorPreparer(),
+        ligand_preparer=FakeLigandPreparer(),
+        prepared_inputs=prepared,
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=store,
+        backend=backend,
+        clock=lambda: T0,
+    )
+    second_pipeline = OfflineDockingPipeline(
+        receptor_preparer=FakeReceptorPreparer(),
+        ligand_preparer=ChangedLigandPreparer(),
+        prepared_inputs=prepared,
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=store,
+        backend=backend,
+        clock=lambda: T0,
+    )
+
+    try:
+        first = first_pipeline.run(make_spec())
+        second = second_pipeline.run(
+            replace(make_spec(), run_id="run_2")
+        )
+
+        assert first.experiment_id == second.experiment_id
+        assert set(first.task_ids).isdisjoint(second.task_ids)
+        assert len(first.task_ids) == 2
+        assert len(second.task_ids) == 1
+        assert backend.calls[-1] == second.task_ids[0]
+        assert len(backend.calls) == 3
+        assert all(
+            tasks.attempts_for(task_id, "run_2") == ()
+            for task_id in first.task_ids
+        )
+        assert len(
+            tasks.attempts_for(second.task_ids[0], "run_2")
+        ) == 1
+    finally:
+        prepared.close()
+        tasks.close()
+        artifacts.close()
+        science.close()

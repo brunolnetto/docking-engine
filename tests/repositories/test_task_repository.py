@@ -231,3 +231,39 @@ def test_attempt_history_is_preserved():
     assert [attempt.attempt_number for attempt in history] == [1, 2]
     assert history[0].status is TaskStatus.FAILED
     assert history[1].status is TaskStatus.RUNNING
+
+
+def test_claim_next_can_be_restricted_to_allowed_task_ids():
+    repo = InMemoryTaskRepository()
+    first = make_task("lig_a", "prepared_a")
+    second = make_task("lig_b", "prepared_b")
+    repo.register(first)
+    repo.register(second)
+
+    claimed = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        allowed_task_ids={second.task_id},
+    )
+
+    assert claimed is not None
+    assert claimed.task_id == second.task_id
+    assert repo.attempts_for(first.task_id, "run_1") == ()
+
+
+def test_claim_next_with_empty_allowed_task_ids_claims_nothing():
+    repo = InMemoryTaskRepository()
+    repo.register(make_task())
+
+    assert (
+        repo.claim_next(
+            "exp_1",
+            "run_1",
+            "worker_1",
+            T0,
+            allowed_task_ids=set(),
+        )
+        is None
+    )
