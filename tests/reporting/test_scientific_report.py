@@ -320,8 +320,14 @@ def test_scientific_report_does_not_infer_cross_method_order():
 
     assert report.completed is True
     assert report.poses[0].score_value == 0.123456789
-    assert any("no cross-method ordering was inferred" in item for item in report.narrative.interpretation)
-    assert "no cross-method conclusion" in report.narrative.conclusion
+    assert any(
+        "no cross-method or cross-version ordering was inferred" in item
+        for item in report.narrative.interpretation
+    )
+    assert (
+        "no cross-method or cross-version conclusion"
+        in report.narrative.conclusion
+    )
 
 
 
