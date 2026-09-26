@@ -590,6 +590,48 @@ class ReportLabPipelineReporter:
                 ]
             )
 
+            if any(
+                pose.contact_residues
+                or pose.hydrogen_bond_count
+                or pose.hydrophobic_contact_count
+                for pose in scientific.poses
+            ):
+                interaction_rows = [
+                    [
+                        "Rank",
+                        "Residues contacted",
+                        "H-bonds",
+                        "Hydrophobic",
+                        "Contact residues",
+                    ]
+                ]
+                for pose in scientific.poses:
+                    interaction_rows.append(
+                        [
+                            pose.rank if pose.rank is not None else "—",
+                            len(pose.contact_residues),
+                            pose.hydrogen_bond_count,
+                            pose.hydrophobic_contact_count,
+                            ", ".join(pose.contact_residues),
+                        ]
+                    )
+                story.extend(
+                    [
+                        paragraph("Interaction profile", "DockingH2"),
+                        striped_table(
+                            interaction_rows,
+                            [
+                                14 * mm,
+                                34 * mm,
+                                24 * mm,
+                                30 * mm,
+                                72 * mm,
+                            ],
+                            right_columns=(0, 1, 2, 3),
+                        ),
+                    ]
+                )
+
         story.extend(
             [
                 paragraph("Interpretation", "DockingH2"),
