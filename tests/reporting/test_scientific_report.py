@@ -2,6 +2,8 @@ import pytest
 
 from moldock.domain import FailureKind, TaskStatus
 from moldock.reporting import (
+    ClusterObservation,
+    MetricObservation,
     PipelineReport,
     RankingObservation,
     ScoreObservation,
@@ -41,6 +43,42 @@ def _successful_report():
         scores.append(score)
         rankings.append(ranking)
         poses.append(pose_id)
+    metrics = []
+    clusters = []
+    rmsds = (0.0, 1.7, 12.4, 12.2, 2.1)
+    cluster_ids = ("c1", "c1", "c2", "c3", "c4")
+    for rank, pose_id in enumerate(poses, start=1):
+        metrics.extend(
+            [
+                MetricObservation(
+                    metric_id=f"rmsd_{rank}",
+                    pose_id=pose_id,
+                    kind="rmsd_to_rank1",
+                    value=rmsds[rank - 1],
+                    unit="angstrom",
+                    method="pdbqt_atom_order_direct_rmsd",
+                    method_version="1",
+                ),
+                MetricObservation(
+                    metric_id=f"le_{rank}",
+                    pose_id=pose_id,
+                    kind="ligand_efficiency",
+                    value=-values[rank - 1] / 37,
+                    unit="kcal/mol/heavy_atom",
+                    method="vina_affinity_per_heavy_atom",
+                    method_version="1.2.7",
+                ),
+            ]
+        )
+        clusters.append(
+            ClusterObservation(
+                assignment_id=f"assignment_{rank}",
+                pose_id=pose_id,
+                cluster_id=cluster_ids[rank - 1],
+                method="rank_ordered_leader_rmsd",
+                method_version="1",
+            )
+        )
     task = TaskPipelineReport(
         task_id="task_1",
         ligand_id="STI",
@@ -53,6 +91,8 @@ def _successful_report():
         pose_ids=tuple(poses),
         scores=tuple(scores),
         rankings=tuple(rankings),
+        metrics=tuple(metrics),
+        clusters=tuple(clusters),
     )
     return PipelineReport(
         run_id="run_1",
@@ -87,6 +127,12 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert any("do not by themselves establish experimental binding affinity" in item for item in report.narrative.limitations)
     assert any("RMSD" in item for item in report.narrative.next_steps)
     assert "prioritizing rank 1 for structural follow-up" in report.narrative.conclusion
+    assert report.poses[1].rmsd_to_rank1 == 1.7
+    assert report.poses[0].ligand_efficiency == pytest.approx(13.286 / 37)
+    assert report.poses[0].cluster_id == "c1"
+    assert any("4 RMSD cluster" in item for item in report.narrative.interpretation)
+    assert "shares its 2.0 Å RMSD cluster" in report.narrative.conclusion
+    assert "substantial structural diversity" in report.narrative.conclusion
 
 
 def test_scientific_report_limits_interpretation_for_failed_experiment():
