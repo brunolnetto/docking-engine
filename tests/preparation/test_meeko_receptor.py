@@ -241,3 +241,50 @@ def test_meeko_receptor_preparer_rejects_non_positive_timeout():
             method_version="0.8.0",
             execution_timeout=timedelta(0),
         )
+
+
+def test_meeko_receptor_preparer_uses_output_basename_and_write_switch():
+    class BasenameRunner:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, command, *, cwd, timeout=None):
+            self.calls.append(tuple(command))
+            basename = Path(command[command.index("--output_basename") + 1])
+            assert command[command.index("--write_pdbqt") + 1:] == []
+            Path(str(basename) + ".pdbqt").write_bytes(b"ATOM PDBQT\n")
+            return CompletedProcess(command, 0, "ok", "")
+
+    runner = BasenameRunner()
+    preparer = MeekoReceptorPreparer(
+        method_version="0.8.0",
+        runner=runner,
+    )
+
+    artifact = preparer.prepare(make_request())
+
+    assert artifact.pdbqt == b"ATOM PDBQT\n"
+    command = runner.calls[0]
+    assert "--output_basename" in command
+    assert "--write_pdbqt" in command
+
+
+def test_meeko_receptor_preparer_keeps_legacy_runner_signature_without_timeout():
+    calls = []
+
+    class LegacyRunner:
+        def __call__(self, command, *, cwd):
+            calls.append((tuple(command), Path(cwd)))
+            basename = Path(command[command.index("--output_basename") + 1])
+            Path(str(basename) + ".pdbqt").write_bytes(b"ATOM PDBQT\n")
+            return CompletedProcess(command, 0, "ok", "")
+
+    preparer = MeekoReceptorPreparer(
+        method_version="0.8.0",
+        runner=LegacyRunner(),
+    )
+
+    artifact = preparer.prepare(make_request())
+
+    assert artifact.pdbqt == b"ATOM PDBQT\n"
+    assert len(calls) == 1
