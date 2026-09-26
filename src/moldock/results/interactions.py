@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import re
+from typing import Protocol, runtime_checkable
 
 from moldock.domain import (
     DomainValidationError,
@@ -155,6 +156,17 @@ def donor_angle(
     cosine /= norm_left * norm_right
     cosine = max(-1.0, min(1.0, cosine))
     return math.degrees(math.acos(cosine))
+
+
+@runtime_checkable
+class PoseInteractionAnalyzer(Protocol):
+    def analyze(
+        self,
+        *,
+        task_id: str,
+        attempt_id: str,
+        pose_content: bytes,
+    ) -> None: ...
 
 
 class PdbqtPoseInteractionAnalyzer:
