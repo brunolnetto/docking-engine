@@ -3,7 +3,9 @@ import pytest
 import moldock.domain.result as result_module
 from moldock.domain import (
     DomainValidationError,
+    InteractionKind,
     Pose,
+    PoseInteraction,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -138,3 +140,41 @@ def test_repository_detects_ranking_id_collision(monkeypatch):
 
     with pytest.raises(DomainValidationError, match="conflicting"):
         repo.register_ranking(second)
+
+
+def test_repository_registers_interactions_idempotently():
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    repo.register_pose(pose)
+    interaction = PoseInteraction(
+        pose_id=pose.pose_id,
+        kind=InteractionKind.RESIDUE_CONTACT,
+        receptor_residue="LEU:A:20",
+        receptor_atom="C:1:C",
+        ligand_atom="C1:2:C",
+        distance_angstrom=3.5,
+        method="autodock_atom_type_geometry",
+        method_version="1",
+    )
+
+    repo.register_interaction(interaction)
+    repo.register_interaction(interaction)
+
+    assert repo.list_interactions_for_pose(pose.pose_id) == (interaction,)
+
+
+def test_repository_rejects_interaction_for_unknown_pose():
+    repo = InMemoryScientificResultRepository()
+    interaction = PoseInteraction(
+        pose_id="missing",
+        kind=InteractionKind.RESIDUE_CONTACT,
+        receptor_residue="LEU:A:20",
+        receptor_atom="C:1:C",
+        ligand_atom="C1:2:C",
+        distance_angstrom=3.5,
+        method="autodock_atom_type_geometry",
+        method_version="1",
+    )
+
+    with pytest.raises(DomainValidationError, match="unknown pose"):
+        repo.register_interaction(interaction)
