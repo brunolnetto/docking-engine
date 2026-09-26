@@ -210,6 +210,11 @@ class ReportLabPipelineReporter:
             return Paragraph(esc(value), styles[style])
 
         def bullets(items: tuple[str, ...] | list[str]):
+            if not items:
+                return paragraph(
+                    "No additional items are supported by the current durable state.",
+                    "DockingNote",
+                )
             rows = []
             for item in items:
                 rows.append(
