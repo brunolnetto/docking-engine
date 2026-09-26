@@ -155,3 +155,18 @@ def test_run_manifest_rejects_blank_nested_identity():
 
     with pytest.raises(DomainValidationError):
         manifest(task_ids=(" ",))
+
+
+def test_run_manifest_without_toolchain_survives_restart(tmp_path):
+    repo = make_repo(tmp_path)
+    expected = manifest(toolchain_snapshot=None)
+    repo.register(expected)
+    repo.close()
+
+    reopened = make_repo(tmp_path)
+    try:
+        restored = reopened.get(expected.run_id)
+        assert restored == expected
+        assert restored.toolchain_snapshot is None
+    finally:
+        reopened.close()
