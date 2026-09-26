@@ -171,7 +171,7 @@ class MeekoLigandPreparer:
             )
         if (
             source_format == "sdf"
-            and self._count_record_lines(request.content, b"$$") > 1
+            and self._count_record_lines(request.content, b"$$$$") > 1
         ):
             raise DomainValidationError(
                 "MeekoLigandPreparer accepts a single molecule per SDF request"
