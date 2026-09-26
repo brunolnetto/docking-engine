@@ -138,6 +138,7 @@ class OfflineDockingPipeline:
         toolchain_snapshot = None
         if self._toolchain_preflight is not None:
             toolchain_snapshot = self._toolchain_preflight.inspect(
+                expected_backend=spec.docking_protocol.backend,
                 expected_vina_version=(
                     spec.docking_protocol.backend_version
                 ),
@@ -152,6 +153,21 @@ class OfflineDockingPipeline:
                 ),
                 expected_receptor_version=(
                     spec.receptor_request.protocol.method_version
+                ),
+                vina_executable=getattr(
+                    self._backend,
+                    "executable",
+                    None,
+                ),
+                ligand_executable=getattr(
+                    self._ligand_preparer,
+                    "executable",
+                    None,
+                ),
+                receptor_executable=getattr(
+                    self._receptor_preparer,
+                    "executable",
+                    None,
                 ),
             )
 

@@ -76,6 +76,10 @@ class MeekoReceptorPreparer:
         self._runner = runner or _default_runner
         self._execution_timeout = execution_timeout
 
+    @property
+    def executable(self) -> str:
+        return self._executable
+
     def prepare(
         self,
         request: ReceptorPreparationRequest,
