@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from moldock.domain import DomainValidationError
-from moldock.pipeline import RunManifest
+from moldock.run_manifest import RunManifest
 from moldock.toolchain import ExecutableInfo, ToolchainSnapshot
 
 from .ducklake_base import DuckLakeRepositoryBase

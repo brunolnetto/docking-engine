@@ -1,4 +1,4 @@
-from .run_manifest import RunManifest
+from moldock.run_manifest import RunManifest
 from .offline import (
     OfflineDockingPipeline,
     OfflineDockingSpec,

@@ -27,7 +27,7 @@ from moldock.repositories import (
 )
 from moldock.results import ScientificResultInterpreter
 from moldock.storage import ArtifactStore
-from moldock.pipeline.run_manifest import RunManifest
+from moldock.run_manifest import RunManifest
 from moldock.toolchain import (
     ToolchainPreflight,
     ToolchainSnapshot,
