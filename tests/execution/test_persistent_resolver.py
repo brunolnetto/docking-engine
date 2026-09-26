@@ -270,3 +270,21 @@ def test_prepared_repository_detects_duplicate_receptor_identity(tmp_path):
             repo.get_receptor(receptor.prepared_receptor_id)
     finally:
         repo.close()
+
+
+
+def test_resolver_rejects_missing_prepared_ligand_after_receptor_lookup(tmp_path):
+    store = FilesystemArtifactStore(tmp_path / "artifacts")
+    repo = make_repo(tmp_path)
+    repo.register_receptor(prepared_receptor(), store.put(b"REC"))
+    resolver = PersistentDockingInputResolver(
+        prepared_inputs=repo,
+        artifact_store=store,
+    )
+    resolver.register_search_space(BOX)
+
+    try:
+        with pytest.raises(DomainValidationError, match="prepared ligand"):
+            resolver.resolve(make_task())
+    finally:
+        repo.close()
