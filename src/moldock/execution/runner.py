@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from threading import Event, Lock
-from typing import Protocol
+from typing import AbstractSet, Protocol
 
 from moldock.domain import (
     DomainValidationError,
@@ -83,6 +83,8 @@ class LeasedWorkerRunner:
         experiment_id: str,
         run_id: str,
         worker_id: str,
+        *,
+        allowed_task_ids: AbstractSet[str] | None = None,
     ) -> TaskAttempt | None:
         with self._claim_lock:
             if self.stopped:
@@ -93,6 +95,7 @@ class LeasedWorkerRunner:
                 worker_id=worker_id,
                 at=self._clock(),
                 lease_duration=self._lease_duration,
+                allowed_task_ids=allowed_task_ids,
             )
         if attempt is None:
             return None

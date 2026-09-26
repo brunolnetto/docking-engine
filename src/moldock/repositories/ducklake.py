@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import AbstractSet
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock, RLock
@@ -254,6 +255,7 @@ class DuckLakeTaskRepository:
         at: datetime,
         *,
         lease_duration: timedelta | None = None,
+        allowed_task_ids: AbstractSet[str] | None = None,
     ) -> TaskAttempt | None:
         if not run_id.strip():
             raise DomainValidationError("run_id must not be blank")
@@ -261,10 +263,17 @@ class DuckLakeTaskRepository:
             raise DomainValidationError("worker_id must not be blank")
         self._validate_timestamp(at)
         duration = self._lease_duration(lease_duration)
+        allowed = (
+            None
+            if allowed_task_ids is None
+            else frozenset(allowed_task_ids)
+        )
 
         def operation() -> TaskAttempt | None:
             tasks = self.list_for_experiment(experiment_id)
             for task in tasks:
+                if allowed is not None and task.task_id not in allowed:
+                    continue
                 history = self._attempts_for_current_transaction(
                     task.task_id,
                     run_id,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Protocol, runtime_checkable
+from typing import AbstractSet, Protocol, runtime_checkable
 
 from moldock.domain import (
     ArtifactMetadata,
@@ -27,6 +27,7 @@ class TaskRepository(Protocol):
         at: datetime,
         *,
         lease_duration: timedelta | None = None,
+        allowed_task_ids: AbstractSet[str] | None = None,
     ) -> TaskAttempt | None: ...
 
     def heartbeat(

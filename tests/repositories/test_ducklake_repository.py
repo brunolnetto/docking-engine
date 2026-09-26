@@ -393,3 +393,30 @@ def test_ducklake_rejects_non_datetime_timestamp(tmp_path):
 
     with pytest.raises(DomainValidationError, match="must be a datetime"):
         repo.claim_next("exp_1", "run_1", "worker_1", "2026-09-25")
+
+
+def test_ducklake_claim_can_be_restricted_to_allowed_task_ids(tmp_path):
+    repo = make_repo(tmp_path)
+    first = make_task()
+    second = DockingTask(
+        experiment_id="exp_1",
+        receptor_id="rec_1",
+        ligand_id="lig_2",
+        prepared_receptor_id="prepared_rec_1",
+        prepared_ligand_id="prepared_lig_2",
+        search_space_id="space_1",
+    )
+    repo.register(first)
+    repo.register(second)
+
+    claimed = repo.claim_next(
+        "exp_1",
+        "run_1",
+        "worker_1",
+        T0,
+        allowed_task_ids={second.task_id},
+    )
+
+    assert claimed is not None
+    assert claimed.task_id == second.task_id
+    assert repo.attempts_for(first.task_id, "run_1") == ()
