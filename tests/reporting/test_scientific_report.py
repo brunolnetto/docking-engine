@@ -1,3 +1,4 @@
+import math
 import pytest
 
 from moldock.domain import FailureKind, TaskStatus
@@ -524,3 +525,201 @@ def test_pose_evidence_separates_scoring_method_versions():
         "cross-version" in item
         for item in report.narrative.interpretation
     )
+
+
+
+def test_scientific_report_skips_non_finite_score_observations():
+    task = TaskPipelineReport(
+        task_id="task_nan",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_nan",),
+        scores=(
+            ScoreObservation(
+                score_id="score_nan",
+                pose_id="pose_nan",
+                kind="custom_score",
+                value=math.nan,
+                unit=None,
+                method="custom",
+                method_version="1",
+                attempt_id="attempt_1",
+            ),
+        ),
+        rankings=(),
+    )
+    source = PipelineReport(
+        run_id="run_nan",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        tasks=(task,),
+    )
+
+    report = ScientificReportBuilder().build(source)
+
+    assert report.poses == ()
+    assert "without persisted score observations" in report.narrative.outcome
+
+
+def test_scientific_report_handles_rmsd_without_rank1_cluster_assignment():
+    score, ranking = _score("pose_1", -8.0, 1)
+    task = TaskPipelineReport(
+        task_id="task_1",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_1",),
+        scores=(score,),
+        rankings=(ranking,),
+        metrics=(
+            MetricObservation(
+                metric_id="rmsd_1",
+                pose_id="pose_1",
+                kind="rmsd_to_rank1",
+                value=0.0,
+                unit="angstrom",
+                method="pdbqt_atom_order_direct_rmsd",
+                method_version="1",
+            ),
+        ),
+        clusters=(),
+    )
+    source = PipelineReport(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        tasks=(task,),
+        receptor_id="rec",
+    )
+
+    report = ScientificReportBuilder().build(source)
+
+    assert report.poses[0].rmsd_to_rank1 == 0.0
+    assert report.poses[0].cluster_id is None
+
+
+def test_scientific_report_handles_single_pose_cluster_without_peer():
+    score, ranking = _score("pose_1", -8.0, 1)
+    task = TaskPipelineReport(
+        task_id="task_1",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_1",),
+        scores=(score,),
+        rankings=(ranking,),
+        metrics=(
+            MetricObservation(
+                metric_id="rmsd_1",
+                pose_id="pose_1",
+                kind="rmsd_to_rank1",
+                value=0.0,
+                unit="angstrom",
+                method="pdbqt_atom_order_direct_rmsd",
+                method_version="1",
+            ),
+        ),
+        clusters=(
+            ClusterObservation(
+                assignment_id="assignment_1",
+                pose_id="pose_1",
+                cluster_id="c1",
+                method="rank_ordered_leader_rmsd",
+                method_version="1",
+            ),
+        ),
+    )
+    source = PipelineReport(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        tasks=(task,),
+        receptor_id="rec",
+    )
+
+    report = ScientificReportBuilder().build(source)
+
+    assert report.evidence[0].cluster_size == 1
+    assert "shares its 2.0 Å RMSD cluster" not in report.narrative.conclusion
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected", "unexpected"),
+    [
+        ("hydrogen_bond", "hydrogen-bond residues", "hydrophobic-contact residues"),
+        ("hydrophobic_contact", "hydrophobic-contact residues", "hydrogen-bond residues"),
+    ],
+)
+def test_scientific_report_describes_single_interaction_family(
+    kind,
+    expected,
+    unexpected,
+):
+    score, ranking = _score("pose_1", -8.0, 1)
+    interaction = InteractionObservation(
+        interaction_id="interaction_1",
+        pose_id="pose_1",
+        kind=kind,
+        receptor_atom_serial=1,
+        receptor_atom_name="CA",
+        receptor_residue_name="ALA",
+        receptor_chain="A",
+        receptor_residue_number="10",
+        ligand_atom_serial=2,
+        ligand_atom_name="C1",
+        distance_angstrom=3.0,
+        method="test",
+        method_version="1",
+    )
+    task = TaskPipelineReport(
+        task_id="task_1",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_1",),
+        scores=(score,),
+        rankings=(ranking,),
+        interactions=(interaction,),
+    )
+    source = PipelineReport(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        tasks=(task,),
+        receptor_id="rec",
+    )
+
+    report = ScientificReportBuilder().build(source)
+    narrative = " ".join(report.narrative.interpretation)
+
+    assert expected in narrative
+    assert unexpected not in narrative
