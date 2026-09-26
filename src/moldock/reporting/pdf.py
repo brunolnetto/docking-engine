@@ -7,6 +7,10 @@ from typing import BinaryIO
 from .model import PipelineReport
 
 
+def _score_value(value: float) -> str:
+    return repr(value)
+
+
 class ReportLabPipelineReporter:
     """Render an auditable, deterministic PDF presentation of a pipeline report.
 
@@ -142,6 +146,22 @@ class ReportLabPipelineReporter:
                 textColor=muted,
             )
         )
+        styles.add(
+            ParagraphStyle(
+                name="DockingDiagnostic",
+                parent=styles["BodyText"],
+                fontName="Courier",
+                fontSize=6.8,
+                leading=8.5,
+                textColor=text,
+                wordWrap="CJK",
+                backColor=pale,
+                borderColor=line,
+                borderWidth=0.5,
+                borderPadding=6,
+                spaceAfter=3 * mm,
+            )
+        )
 
         class InvariantCanvas(Canvas):
             def __init__(self, *args, **kwargs):
@@ -157,6 +177,16 @@ class ReportLabPipelineReporter:
                 .replace(">", "&gt;")
             )
             return Paragraph(escaped, styles[style])
+
+        def diagnostic_paragraph(value: object):
+            escaped = (
+                str("" if value is None else value)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br/>")
+            )
+            return Paragraph(escaped, styles["DockingDiagnostic"])
 
         def key_value_table(rows):
             table = Table(
@@ -393,15 +423,11 @@ class ReportLabPipelineReporter:
             ["Task", "Ligand", "Status", "Attempts", "Failure"]
         ]
         for task in report.tasks:
-            failure = ""
-            if task.failure_kind is not None:
-                failure = task.failure_kind.value
-            if task.error:
-                failure = (
-                    f"{failure}: {task.error}"
-                    if failure
-                    else task.error
-                )
+            failure = (
+                task.failure_kind.value
+                if task.failure_kind is not None
+                else ("see diagnostics" if task.error else "")
+            )
             execution_rows.append(
                 [
                     task.task_id,
@@ -419,6 +445,29 @@ class ReportLabPipelineReporter:
                 right_columns=(3,),
             )
         )
+
+        failed_with_diagnostics = [
+            task for task in report.tasks if task.error
+        ]
+        if failed_with_diagnostics:
+            story.append(
+                paragraph("Failure diagnostics", "DockingH2")
+            )
+            for task in failed_with_diagnostics:
+                kind = (
+                    task.failure_kind.value
+                    if task.failure_kind is not None
+                    else "UNCLASSIFIED"
+                )
+                story.extend(
+                    [
+                        paragraph(
+                            f"{task.task_id} | {kind}",
+                            "DockingMono",
+                        ),
+                        diagnostic_paragraph(task.error),
+                    ]
+                )
 
         story.append(PageBreak())
         story.extend(
@@ -453,7 +502,7 @@ class ReportLabPipelineReporter:
                         task.ligand_id,
                         score.pose_id,
                         score.kind,
-                        f"{score.value:.3f}",
+                        _score_value(score.value),
                         score.unit or "",
                         score.method,
                         score.method_version,
