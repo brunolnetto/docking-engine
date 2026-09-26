@@ -18,7 +18,6 @@ class ScientificResultInterpreter(Protocol):
         *,
         task_id: str,
         artifact: ArtifactMetadata,
-        request: DockingExecutionRequest | None = None,
     ) -> None: ...
 
 
@@ -28,7 +27,6 @@ class NullScientificResultInterpreter:
         *,
         task_id: str,
         artifact: ArtifactMetadata,
-        request: DockingExecutionRequest | None = None,
     ) -> None:
         return None
 
@@ -61,7 +59,32 @@ class VinaResultInterpreter:
         *,
         task_id: str,
         artifact: ArtifactMetadata,
-        request: DockingExecutionRequest | None = None,
+    ) -> None:
+        self._interpret(
+            task_id=task_id,
+            artifact=artifact,
+            request=None,
+        )
+
+    def interpret_with_request(
+        self,
+        *,
+        task_id: str,
+        artifact: ArtifactMetadata,
+        request: DockingExecutionRequest,
+    ) -> None:
+        self._interpret(
+            task_id=task_id,
+            artifact=artifact,
+            request=request,
+        )
+
+    def _interpret(
+        self,
+        *,
+        task_id: str,
+        artifact: ArtifactMetadata,
+        request: DockingExecutionRequest | None,
     ) -> None:
         if artifact.kind != "docking_pose":
             return
