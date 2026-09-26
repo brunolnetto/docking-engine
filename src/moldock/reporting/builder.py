@@ -105,6 +105,11 @@ class PipelineReportBuilder:
                 if manifest is not None
                 else result.toolchain_snapshot
             ),
+            experiment_configuration=(
+                manifest.experiment_configuration
+                if manifest is not None
+                else {}
+            ),
         )
 
     def _build_task(
