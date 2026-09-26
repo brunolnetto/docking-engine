@@ -5,6 +5,12 @@ from .analysis import (
     direct_rmsd,
 )
 from .ducklake_repository import DuckLakeScientificResultRepository
+from .interactions import (
+    PdbqtAtom,
+    PdbqtInteractionParser,
+    PoseInteractionAnalyzer,
+    PreparedReceptorResolver,
+)
 from .interpreter import (
     NullScientificResultInterpreter,
     ScientificResultInterpreter,
@@ -21,6 +27,10 @@ from .repository import (
 )
 
 __all__ = [
+    "PdbqtAtom",
+    "PdbqtInteractionParser",
+    "PoseInteractionAnalyzer",
+    "PreparedReceptorResolver",
     "ScientificResultInterpreter",
     "NullScientificResultInterpreter",
     "VinaResultInterpreter",
