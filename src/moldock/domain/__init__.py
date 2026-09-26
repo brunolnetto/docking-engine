@@ -7,6 +7,7 @@ from .execution_request import DockingExecutionRequest
 from .experiment import DockingExperiment
 from .protocol import DockingProtocol
 from .failure import ExecutionFailure, FailureKind
+from .interaction import InteractionKind, PoseInteraction
 from .prepared import PreparedLigand, PreparedReceptor
 from .result import Pose, PoseRanking, PoseScore, ScoreKind
 from .retry import RetryPolicy
@@ -37,6 +38,8 @@ __all__ = [
     "PoseMetric",
     "PoseMetricKind",
     "PoseClusterAssignment",
+    "PoseInteraction",
+    "InteractionKind",
     "PoseScore",
     "PoseRanking",
     "ScoreKind",
