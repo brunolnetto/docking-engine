@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from moldock.domain import DomainValidationError
+from moldock.domain.common import canonical_json
 from moldock.run_manifest import RunManifest
 from moldock.toolchain import ExecutableInfo, ToolchainSnapshot
 
@@ -86,8 +87,15 @@ class DuckLakeRunManifestRepository(DuckLakeRepositoryBase):
                     prepared_receptor_id VARCHAR,
                     prepared_ligand_ids_json VARCHAR,
                     task_ids_json VARCHAR,
-                    toolchain_json VARCHAR
+                    toolchain_json VARCHAR,
+                    experiment_configuration_json VARCHAR
                 )
+            self._connection.execute(
+                """
+                ALTER TABLE moldock.run_manifests
+                ADD COLUMN IF NOT EXISTS experiment_configuration_json VARCHAR
+                """
+            )
                 """
             )
 
@@ -106,7 +114,7 @@ class DuckLakeRunManifestRepository(DuckLakeRepositoryBase):
             self._connection.execute(
                 """
                 INSERT INTO moldock.run_manifests
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     manifest.run_id,
@@ -133,6 +141,9 @@ class DuckLakeRunManifestRepository(DuckLakeRepositoryBase):
                     _encode_toolchain(
                         manifest.toolchain_snapshot
                     ),
+                    canonical_json(
+                        manifest.experiment_configuration
+                    ),
                 ],
             )
 
@@ -157,7 +168,8 @@ class DuckLakeRunManifestRepository(DuckLakeRepositoryBase):
                 prepared_receptor_id,
                 prepared_ligand_ids_json,
                 task_ids_json,
-                toolchain_json
+                toolchain_json,
+                experiment_configuration_json
             FROM moldock.run_manifests
             WHERE run_id = ?
             """,
@@ -185,6 +197,9 @@ class DuckLakeRunManifestRepository(DuckLakeRepositoryBase):
             prepared_ligand_ids=tuple(json.loads(row[10])),
             task_ids=tuple(json.loads(row[11])),
             toolchain_snapshot=_decode_toolchain(row[12]),
+            experiment_configuration=(
+                json.loads(row[13]) if row[13] else {}
+            ),
         )
         if manifest.run_manifest_id != row[1]:
             raise RuntimeError(
