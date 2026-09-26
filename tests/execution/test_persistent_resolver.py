@@ -183,3 +183,90 @@ def test_resolver_rejects_missing_search_space(tmp_path):
             resolver.resolve(make_task())
     finally:
         repo.close()
+
+
+
+def test_prepared_receptor_registration_is_idempotent_and_conflict_is_rejected(
+    tmp_path,
+):
+    store = FilesystemArtifactStore(tmp_path / "artifacts")
+    first_blob = store.put(b"REC")
+    second_blob = store.put(b"OTHER")
+    repo = make_repo(tmp_path)
+    receptor = prepared_receptor()
+
+    try:
+        repo.register_receptor(receptor, first_blob)
+        repo.register_receptor(receptor, first_blob)
+
+        with pytest.raises(DomainValidationError, match="conflicting"):
+            repo.register_receptor(receptor, second_blob)
+    finally:
+        repo.close()
+
+
+def test_prepared_repository_missing_lookups_return_none(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        assert repo.get_ligand("missing") is None
+        assert repo.get_receptor("missing") is None
+    finally:
+        repo.close()
+
+
+def test_prepared_repository_detects_duplicate_ligand_identity(tmp_path):
+    store = FilesystemArtifactStore(tmp_path / "artifacts")
+    blob = store.put(b"LIG")
+    repo = make_repo(tmp_path)
+    ligand = prepared_ligand()
+    try:
+        repo.register_ligand(ligand, blob)
+        repo._connection.execute(
+            """
+            INSERT INTO moldock.prepared_ligands
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ligand.prepared_ligand_id,
+                ligand.ligand_id,
+                ligand.preparation_id,
+                blob.blob_id,
+                blob.uri,
+                blob.sha256,
+                blob.size_bytes,
+            ],
+        )
+
+        with pytest.raises(RuntimeError, match="duplicated"):
+            repo.get_ligand(ligand.prepared_ligand_id)
+    finally:
+        repo.close()
+
+
+def test_prepared_repository_detects_duplicate_receptor_identity(tmp_path):
+    store = FilesystemArtifactStore(tmp_path / "artifacts")
+    blob = store.put(b"REC")
+    repo = make_repo(tmp_path)
+    receptor = prepared_receptor()
+    try:
+        repo.register_receptor(receptor, blob)
+        repo._connection.execute(
+            """
+            INSERT INTO moldock.prepared_receptors
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                receptor.prepared_receptor_id,
+                receptor.receptor_id,
+                receptor.preparation_id,
+                blob.blob_id,
+                blob.uri,
+                blob.sha256,
+                blob.size_bytes,
+            ],
+        )
+
+        with pytest.raises(RuntimeError, match="duplicated"):
+            repo.get_receptor(receptor.prepared_receptor_id)
+    finally:
+        repo.close()
