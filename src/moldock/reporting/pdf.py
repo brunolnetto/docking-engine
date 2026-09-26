@@ -556,18 +556,27 @@ class ReportLabPipelineReporter:
             [
                 paragraph("Interpretation", "DockingH2"),
                 bullets(scientific.narrative.interpretation),
-                paragraph("Conclusion", "DockingH2"),
-                paragraph(scientific.narrative.conclusion, "DockingCallout"),
+                KeepTogether(
+                    [
+                        paragraph("Conclusion", "DockingH2"),
+                        paragraph(
+                            scientific.narrative.conclusion,
+                            "DockingCallout",
+                        ),
+                    ]
+                ),
                 paragraph("What this result does not establish", "DockingH2"),
                 bullets(scientific.narrative.limitations),
                 paragraph("Recommended next analyses", "DockingH2"),
                 bullets(scientific.narrative.next_steps),
-                PageBreak(),
+                Spacer(1, 9 * mm),
                 paragraph("Reproducibility Appendix", "DockingTitle"),
                 paragraph(
                     "Technical identities and execution provenance are retained "
                     "here for audit and reconstruction, separate from the "
-                    "scientific narrative.",
+                    "scientific narrative. Scientific identity remains anchored "
+                    "by the durable run manifest, source hashes, prepared "
+                    "artifacts, task/attempt history, and captured toolchain.",
                     "DockingSubtitle",
                 ),
             ]
@@ -714,19 +723,6 @@ class ReportLabPipelineReporter:
                     ),
                 ]
             )
-
-        story.extend(
-            [
-                paragraph("Audit note", "DockingH2"),
-                paragraph(
-                    "This PDF is a deterministic presentation of durable "
-                    "pipeline state. Scientific identity remains anchored by "
-                    "the run manifest, source hashes, prepared artifacts, "
-                    "task/attempt history, and captured executable toolchain.",
-                    "DockingNote",
-                ),
-            ]
-        )
 
         document.build(
             story,
