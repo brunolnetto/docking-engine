@@ -62,8 +62,23 @@ class PoseEvidenceSummary:
     ligand_efficiency: float | None
     hydrogen_bond_residues: tuple[str, ...]
     hydrophobic_residues: tuple[str, ...]
+    salt_bridge_residues: tuple[str, ...] = ()
     cluster_hydrogen_bond_support: tuple[ResidueSupport, ...] = ()
     cluster_hydrophobic_support: tuple[ResidueSupport, ...] = ()
+    cluster_salt_bridge_support: tuple[ResidueSupport, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PoseFamilySummary:
+    ligand_id: str
+    cluster_id: str
+    pose_count: int
+    best_rank: int | None
+    rmsd_min: float | None
+    rmsd_max: float | None
+    recurrent_hydrogen_bonds: tuple[ResidueSupport, ...] = ()
+    recurrent_hydrophobic_contacts: tuple[ResidueSupport, ...] = ()
+    recurrent_salt_bridges: tuple[ResidueSupport, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +97,7 @@ class ScientificExperimentReport:
     source: PipelineReport
     poses: tuple[ScientificPoseResult, ...]
     evidence: tuple[PoseEvidenceSummary, ...]
+    families: tuple[PoseFamilySummary, ...]
     narrative: ScientificNarrative
 
     @property
@@ -117,11 +133,13 @@ class ScientificReportBuilder:
     def build(self, report: PipelineReport) -> ScientificExperimentReport:
         poses = self._poses(report)
         evidence = self._evidence(poses)
+        families = self._families(poses)
         narrative = self._narrative(report, poses, evidence)
         return ScientificExperimentReport(
             source=report,
             poses=poses,
             evidence=evidence,
+            families=families,
             narrative=narrative,
         )
 
@@ -302,6 +320,10 @@ class ScientificReportBuilder:
                     members,
                     interaction_kind="hydrophobic_contact",
                 )
+                salt_bridge_support = self._residue_support(
+                    members,
+                    interaction_kind="salt_bridge",
+                )
                 evidence.append(
                     PoseEvidenceSummary(
                         ligand_id=pose.ligand_id,
@@ -324,8 +346,10 @@ class ScientificReportBuilder:
                         ligand_efficiency=pose.ligand_efficiency,
                         hydrogen_bond_residues=pose.hydrogen_bond_residues,
                         hydrophobic_residues=pose.hydrophobic_residues,
+                        salt_bridge_residues=pose.salt_bridge_residues,
                         cluster_hydrogen_bond_support=hbond_support,
                         cluster_hydrophobic_support=hydrophobic_support,
+                        cluster_salt_bridge_support=salt_bridge_support,
                     )
                 )
 
@@ -356,11 +380,12 @@ class ScientificReportBuilder:
             return ()
         counts: dict[str, int] = {}
         for pose in members:
-            residues = (
-                pose.hydrogen_bond_residues
-                if interaction_kind == "hydrogen_bond"
-                else pose.hydrophobic_residues
-            )
+            if interaction_kind == "hydrogen_bond":
+                residues = pose.hydrogen_bond_residues
+            elif interaction_kind == "salt_bridge":
+                residues = pose.salt_bridge_residues
+            else:
+                residues = pose.hydrophobic_residues
             for residue in set(residues):
                 counts[residue] = counts.get(residue, 0) + 1
         return tuple(
@@ -373,6 +398,78 @@ class ScientificReportBuilder:
             for residue, count in sorted(
                 counts.items(),
                 key=lambda item: (-item[1], item[0]),
+            )
+        )
+
+    def _families(
+        self,
+        poses: tuple[ScientificPoseResult, ...],
+    ) -> tuple[PoseFamilySummary, ...]:
+        grouped: dict[tuple[str, str], list[ScientificPoseResult]] = {}
+        for pose in poses:
+            if pose.cluster_id is None:
+                continue
+            grouped.setdefault(
+                (pose.ligand_id, pose.cluster_id),
+                [],
+            ).append(pose)
+
+        families: list[PoseFamilySummary] = []
+        for (ligand_id, cluster_id), members in grouped.items():
+            ranks = [
+                pose.rank
+                for pose in members
+                if pose.rank is not None
+            ]
+            rmsds = [
+                pose.rmsd_to_rank1
+                for pose in members
+                if pose.rmsd_to_rank1 is not None
+            ]
+            families.append(
+                PoseFamilySummary(
+                    ligand_id=ligand_id,
+                    cluster_id=cluster_id,
+                    pose_count=len(members),
+                    best_rank=min(ranks) if ranks else None,
+                    rmsd_min=min(rmsds) if rmsds else None,
+                    rmsd_max=max(rmsds) if rmsds else None,
+                    recurrent_hydrogen_bonds=tuple(
+                        item
+                        for item in self._residue_support(
+                            members,
+                            interaction_kind="hydrogen_bond",
+                        )
+                        if item.pose_count > 1
+                    ),
+                    recurrent_hydrophobic_contacts=tuple(
+                        item
+                        for item in self._residue_support(
+                            members,
+                            interaction_kind="hydrophobic_contact",
+                        )
+                        if item.pose_count > 1
+                    ),
+                    recurrent_salt_bridges=tuple(
+                        item
+                        for item in self._residue_support(
+                            members,
+                            interaction_kind="salt_bridge",
+                        )
+                        if item.pose_count > 1
+                    ),
+                )
+            )
+
+        return tuple(
+            sorted(
+                families,
+                key=lambda family: (
+                    family.ligand_id,
+                    family.best_rank is None,
+                    family.best_rank if family.best_rank is not None else 10**9,
+                    family.cluster_id,
+                ),
             )
         )
 
