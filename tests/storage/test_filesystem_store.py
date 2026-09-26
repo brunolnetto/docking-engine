@@ -128,3 +128,82 @@ def test_put_fsyncs_directory_entries_before_returning(
     assert sha_root in synced
     assert first_shard in synced
     assert second_shard in synced
+
+
+
+@pytest.mark.parametrize(
+    "blob_id",
+    [
+        "not-a-blob",
+        "blob_short",
+        "blob_" + "g" * 64,
+    ],
+)
+def test_filesystem_get_rejects_malformed_blob_ids(tmp_path, blob_id):
+    store = FilesystemArtifactStore(tmp_path)
+
+    with pytest.raises(DomainValidationError, match="unknown blob"):
+        store.get(blob_id)
+
+
+def test_filesystem_read_rejects_non_file_scheme(tmp_path):
+    store = FilesystemArtifactStore(tmp_path)
+
+    with pytest.raises(DomainValidationError, match="unsupported"):
+        store.read("s3://bucket/key")
+
+
+def test_filesystem_read_rejects_noncanonical_path_inside_root(tmp_path):
+    store = FilesystemArtifactStore(tmp_path)
+    malformed = (tmp_path / "sha256" / ("a" * 64)).resolve()
+
+    with pytest.raises(DomainValidationError, match="unsupported"):
+        store.read(malformed.as_uri())
+
+
+def test_filesystem_read_rejects_invalid_digest_filename(tmp_path):
+    store = FilesystemArtifactStore(tmp_path)
+    malformed = (tmp_path / "sha256" / "aa" / "bb" / ("g" * 64)).resolve()
+
+    with pytest.raises(DomainValidationError, match="unsupported"):
+        store.read(malformed.as_uri())
+
+
+def test_put_cleans_temporary_file_when_replace_fails(tmp_path, monkeypatch):
+    store = FilesystemArtifactStore(tmp_path)
+
+    def fail_replace(source, destination):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(filesystem_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        store.put(b"payload")
+
+    assert not list((tmp_path / "sha256").rglob(".moldock-*"))
+
+
+def test_fsync_directory_windows_ignores_open_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(filesystem_module.os, "name", "nt")
+    monkeypatch.setattr(
+        filesystem_module.os,
+        "open",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("unsupported")),
+    )
+
+    filesystem_module._fsync_directory(tmp_path)
+
+
+def test_fsync_directory_non_windows_propagates_open_failure(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(filesystem_module.os, "name", "posix")
+    monkeypatch.setattr(
+        filesystem_module.os,
+        "open",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("boom")),
+    )
+
+    with pytest.raises(OSError, match="boom"):
+        filesystem_module._fsync_directory(tmp_path)
