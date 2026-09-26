@@ -1,7 +1,10 @@
 import json
 
+import pytest
+
 from moldock.domain import (
     DockingTask,
+    DomainValidationError,
     FailureKind,
     Pose,
     PoseRanking,
