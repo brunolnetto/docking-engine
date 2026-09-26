@@ -1,0 +1,41 @@
+name: Scientific Report Real Smoke V4
+
+on:
+  push:
+    branches:
+      - automation/scientific-report-smoke-v4
+
+permissions:
+  contents: read
+
+jobs:
+  scientific-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install project and real toolchain dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+      - name: Run real pipeline and scientific PDF
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/scientific-report \
+            --run-id 1iep-scientific-report \
+            --pdf
+          test -s .moldock/scientific-report/reports/1iep-scientific-report.pdf
+      - name: Run reporting tests
+        run: python -m pytest tests/reporting -q
+      - name: Upload generated reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-scientific-report-v4
+          path: .moldock/scientific-report/reports/
+          retention-days: 7
