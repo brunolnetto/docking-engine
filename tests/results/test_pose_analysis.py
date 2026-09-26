@@ -1,6 +1,7 @@
 import pytest
 
 from moldock.domain import (
+    DomainValidationError,
     Pose,
     PoseMetricKind,
     PoseRanking,
@@ -132,3 +133,95 @@ def test_pose_analysis_is_idempotent():
 
     assert len(repo.list_metrics_for_pose(pose.pose_id)) == 2
     assert len(repo.list_cluster_assignments_for_pose(pose.pose_id)) == 1
+
+
+def test_geometry_parser_rejects_unterminated_models():
+    with pytest.raises(DomainValidationError, match="unterminated MODEL"):
+        PdbqtPoseGeometryParser().parse(
+            b"MODEL 1\n" + atom(1, 0.0, 0.0, 0.0)
+        )
+
+
+def test_geometry_parser_rejects_empty_models():
+    with pytest.raises(DomainValidationError, match="no heavy atoms"):
+        PdbqtPoseGeometryParser().parse(
+            b"MODEL 1\n"
+            + atom(1, 0.0, 0.0, 0.0, "HD")
+            + b"ENDMDL\n"
+        )
+
+
+def test_geometry_parser_rejects_inconsistent_atom_order():
+    content = (
+        b"MODEL 1\n"
+        + atom(1, 0.0, 0.0, 0.0, "C")
+        + b"ENDMDL\n"
+        + b"MODEL 2\n"
+        + atom(1, 0.0, 0.0, 0.0, "N")
+        + b"ENDMDL\n"
+    )
+
+    with pytest.raises(DomainValidationError, match="atom order differs"):
+        PdbqtPoseGeometryParser().parse(content)
+
+
+def test_direct_rmsd_rejects_different_atom_orders():
+    first = PdbqtPoseGeometryParser().parse(model(1, 0.0))[0]
+    second = type(first)(
+        model_index=2,
+        atom_labels=("N:N", "C:C"),
+        coordinates=first.coordinates,
+    )
+
+    with pytest.raises(DomainValidationError, match="different atom order"):
+        direct_rmsd(first, second)
+
+
+def test_pose_analyzer_rejects_invalid_threshold():
+    with pytest.raises(DomainValidationError, match="threshold"):
+        PoseScientificAnalyzer(
+            repository=InMemoryScientificResultRepository(),
+            cluster_threshold_angstrom=0,
+        )
+
+
+def test_pose_analyzer_is_noop_without_persisted_poses():
+    repo = InMemoryScientificResultRepository()
+
+    PoseScientificAnalyzer(repository=repo).analyze(
+        attempt_id="missing",
+        content=model(1, 0.0),
+    )
+
+
+def test_pose_analyzer_rejects_geometry_model_mismatch():
+    repo = InMemoryScientificResultRepository()
+    pose = persisted_pose(1)
+    repo.register_pose(pose)
+    repo.register_ranking(
+        PoseRanking(
+            pose_id=pose.pose_id,
+            rank=1,
+            method="vina_affinity",
+        )
+    )
+
+    with pytest.raises(DomainValidationError, match="does not match"):
+        PoseScientificAnalyzer(repository=repo).analyze(
+            attempt_id="attempt_1",
+            content=model(2, 0.0),
+        )
+
+
+def test_pose_analyzer_skips_attempt_without_vina_ranking():
+    repo = InMemoryScientificResultRepository()
+    pose = persisted_pose(1)
+    repo.register_pose(pose)
+
+    PoseScientificAnalyzer(repository=repo).analyze(
+        attempt_id="attempt_1",
+        content=model(1, 0.0),
+    )
+
+    assert repo.list_metrics_for_pose(pose.pose_id) == ()
+    assert repo.list_cluster_assignments_for_pose(pose.pose_id) == ()
