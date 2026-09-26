@@ -224,3 +224,42 @@ def test_run_manifest_repository_detects_persisted_identity_corruption(tmp_path)
             repo.get(value.run_id)
     finally:
         repo.close()
+
+
+
+def test_run_manifest_persists_experiment_configuration(tmp_path):
+    expected = manifest(
+        run_id="run_config",
+        experiment_configuration={
+            "molecular_inputs": {
+                "receptor": {
+                    "receptor_id": "1iep",
+                    "source_format": "pdb",
+                }
+            },
+            "docking_protocol": {
+                "backend": "vina",
+                "backend_version": "1.2.7",
+                "parameters": {"seed": 42, "num_modes": 9},
+                "search_box": {
+                    "center": [15.19, 53.903, 16.917],
+                    "size": [20.0, 20.0, 20.0],
+                },
+            },
+        },
+    )
+    repo = make_repo(tmp_path)
+    try:
+        repo.register(expected)
+    finally:
+        repo.close()
+
+    reopened = make_repo(tmp_path)
+    try:
+        restored = reopened.get("run_config")
+        assert restored == expected
+        assert restored.experiment_configuration["docking_protocol"][
+            "parameters"
+        ]["seed"] == 42
+    finally:
+        reopened.close()
