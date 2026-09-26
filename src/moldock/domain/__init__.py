@@ -1,3 +1,4 @@
+from .analysis import PoseClusterAssignment, PoseMetric, PoseMetricKind
 from .artifact import ArtifactMetadata
 from .artifact_blob import StoredBlob
 from .common import DomainValidationError, content_id
@@ -33,6 +34,9 @@ __all__ = [
     "ExecutionFailure",
     "RetryPolicy",
     "Pose",
+    "PoseMetric",
+    "PoseMetricKind",
+    "PoseClusterAssignment",
     "PoseScore",
     "PoseRanking",
     "ScoreKind",
