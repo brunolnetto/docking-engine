@@ -3,10 +3,12 @@ import pytest
 import moldock.domain.result as result_module
 from moldock.domain import (
     DomainValidationError,
+    InteractionKind,
     Pose,
     PoseClusterAssignment,
     PoseMetric,
     PoseMetricKind,
+    PoseInteraction,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -83,6 +85,19 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         method="rank_ordered_leader_rmsd",
         method_version="1",
     )
+    interaction = PoseInteraction(
+        pose_id=pose.pose_id,
+        kind=InteractionKind.HYDROGEN_BOND,
+        receptor_residue="ASN:A:10",
+        receptor_atom="N:1:N",
+        ligand_atom="O1:1:OA",
+        distance_angstrom=2.8,
+        angle_degrees=160.0,
+        protein_is_donor=True,
+        method="autodock_atom_type_geometry",
+        method_version="1",
+        metadata={"hbond_da_distance_max_angstrom": 4.1},
+    )
 
     repo = make_repo(tmp_path)
     repo.register_pose(pose)
@@ -90,6 +105,7 @@ def test_scientific_results_survive_repository_restart(tmp_path):
     repo.register_ranking(ranking)
     repo.register_metric(metric)
     repo.register_cluster_assignment(cluster)
+    repo.register_interaction(interaction)
     repo.close()
 
     reopened = make_repo(tmp_path)
@@ -101,6 +117,9 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         assert reopened.list_cluster_assignments_for_pose(
             pose.pose_id
         ) == (cluster,)
+        assert reopened.list_interactions_for_pose(
+            pose.pose_id
+        ) == (interaction,)
     finally:
         reopened.close()
 
