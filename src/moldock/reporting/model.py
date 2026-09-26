@@ -26,6 +26,26 @@ class RankingObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricObservation:
+    metric_id: str
+    pose_id: str
+    kind: str
+    value: float
+    unit: str | None
+    method: str
+    method_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterObservation:
+    assignment_id: str
+    pose_id: str
+    cluster_id: str
+    method: str
+    method_version: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskPipelineReport:
     task_id: str
     ligand_id: str
@@ -38,6 +58,8 @@ class TaskPipelineReport:
     pose_ids: tuple[str, ...]
     scores: tuple[ScoreObservation, ...]
     rankings: tuple[RankingObservation, ...]
+    metrics: tuple[MetricObservation, ...] = ()
+    clusters: tuple[ClusterObservation, ...] = ()
 
     @property
     def artifact_count(self) -> int:
