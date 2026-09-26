@@ -181,7 +181,8 @@ class PdbqtPoseInteractionAnalyzer:
     HBOND_ANGLE_MIN = 100.0
     SALT_BRIDGE_MAX = 5.5
     DONOR_H_MAX = 1.30
-    LIGAND_CHARGE_MIN = 0.30
+    LIGAND_POSITIVE_CHARGE_MIN = 0.35
+    LIGAND_NEGATIVE_CHARGE_MAX = -0.50
 
     def __init__(
         self,
@@ -329,13 +330,12 @@ class PdbqtPoseInteractionAnalyzer:
             if (item := self._protein_charge(atom)) is not None
         )
         ligand_charged = tuple(
-            atom
+            (sign, atom)
             for atom in ligand_heavy
-            if abs(atom.charge) >= self.LIGAND_CHARGE_MIN
+            if (sign := self._ligand_charge_sign(atom)) is not None
         )
         for receptor_sign, receptor_atom in receptor_charged:
-            for ligand_atom in ligand_charged:
-                ligand_sign = 1 if ligand_atom.charge > 0 else -1
+            for ligand_sign, ligand_atom in ligand_charged:
                 if receptor_sign == ligand_sign:
                     continue
                 distance = atom_distance(receptor_atom, ligand_atom)
@@ -349,7 +349,12 @@ class PdbqtPoseInteractionAnalyzer:
                                 "putative": True,
                                 "protein_charge_sign": receptor_sign,
                                 "ligand_partial_charge": ligand_atom.charge,
-                                "ligand_charge_threshold": self.LIGAND_CHARGE_MIN,
+                                "positive_charge_threshold": (
+                                    self.LIGAND_POSITIVE_CHARGE_MIN
+                                ),
+                                "negative_charge_threshold": (
+                                    self.LIGAND_NEGATIVE_CHARGE_MAX
+                                ),
                             },
                         )
                     )
@@ -504,6 +509,20 @@ class PdbqtPoseInteractionAnalyzer:
                 ):
                     donors.append((heavy, hydrogen))
         return tuple(donors)
+
+    def _ligand_charge_sign(self, atom: PdbqtAtom) -> int | None:
+        atom_type = atom.atom_type.upper()
+        if (
+            atom_type.startswith("N")
+            and atom.charge >= self.LIGAND_POSITIVE_CHARGE_MIN
+        ):
+            return 1
+        if (
+            atom_type in {"OA", "SA"}
+            and atom.charge <= self.LIGAND_NEGATIVE_CHARGE_MAX
+        ):
+            return -1
+        return None
 
     @staticmethod
     def _protein_charge(
