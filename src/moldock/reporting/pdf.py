@@ -413,14 +413,62 @@ class ReportLabPipelineReporter:
             )
             canvas.restoreState()
 
+        config = report.experiment_configuration or {}
+        inputs_config = config.get("molecular_inputs", {})
+        receptor_config = inputs_config.get("receptor", {})
+        ligand_configs = inputs_config.get("ligands", ())
+        docking_config = config.get("docking_protocol", {})
+        analysis_config = config.get("analysis_protocol", {})
+        search_box = docking_config.get("search_box", {})
+        docking_parameters = docking_config.get("parameters", {})
+        interaction_config = analysis_config.get("interactions", {})
+        clustering_config = analysis_config.get("clustering", {})
+        rmsd_config = analysis_config.get("rmsd", {})
+
+        cluster_labels: dict[str, str] = {}
+        for family in scientific.families:
+            if family.cluster_id not in cluster_labels:
+                cluster_labels[family.cluster_id] = (
+                    f"C{len(cluster_labels) + 1}"
+                )
+
+        top_pose = next(
+            (pose for pose in scientific.poses if pose.rank == 1),
+            scientific.poses[0] if scientific.poses else None,
+        )
+        top_family = (
+            next(
+                (
+                    family
+                    for family in scientific.families
+                    if (
+                        top_pose is not None
+                        and family.cluster_id == top_pose.cluster_id
+                    )
+                ),
+                None,
+            )
+            if top_pose is not None
+            else None
+        )
+        rank_two = next(
+            (pose for pose in scientific.poses if pose.rank == 2),
+            None,
+        )
+        rank_gap = (
+            None
+            if top_pose is None or rank_two is None
+            else rank_two.score_value - top_pose.score_value
+        )
+
         story = [
             paragraph(scientific.narrative.title.upper(), "DockingTitle"),
             paragraph(
-                "Scientist-facing interpretation of a reproducible molecular "
-                "docking experiment.",
+                "Scientist-facing report of a reproducible molecular docking "
+                "experiment.",
                 "DockingSubtitle",
             ),
-            paragraph("Study objective", "DockingH2"),
+            paragraph("1. Study overview", "DockingH2"),
             paragraph(scientific.narrative.objective, "DockingCallout"),
         ]
 
@@ -434,7 +482,7 @@ class ReportLabPipelineReporter:
         status_table = Table(
             [
                 [
-                    paragraph("EXPERIMENT STATUS", "DockingMetricLabel"),
+                    paragraph("EXECUTION STATUS", "DockingMetricLabel"),
                     Paragraph(status, status_style),
                 ]
             ],
@@ -455,24 +503,134 @@ class ReportLabPipelineReporter:
         )
         story.extend([status_table, Spacer(1, 3 * mm)])
 
+        def vector_text(values) -> str:
+            if not values:
+                return "n/a"
+            return " / ".join(f"{float(value):g}" for value in values)
+
+        ligand_setup = "; ".join(
+            (
+                f"{item.get('ligand_id', 'ligand')} "
+                f"({str(item.get('source_format', 'n/a')).upper()}) - "
+                f"{item.get('preparation_method', 'n/a')} "
+                f"{item.get('preparation_version', '')}"
+            ).strip()
+            for item in ligand_configs
+        ) or "n/a"
+        receptor_setup = (
+            f"{receptor_config.get('receptor_id', report.receptor_id or 'n/a')} "
+            f"({str(receptor_config.get('source_format', 'n/a')).upper()}) - "
+            f"{receptor_config.get('preparation_method', 'n/a')} "
+            f"{receptor_config.get('preparation_version', '')}"
+        ).strip()
+        docking_label = (
+            f"{docking_config.get('backend', 'n/a')} "
+            f"{docking_config.get('backend_version', '')}"
+        ).strip()
+        docking_parameter_text = ", ".join(
+            f"{key}={value}"
+            for key, value in sorted(docking_parameters.items())
+        ) or "n/a"
+
+        story.extend(
+            [
+                paragraph("2. Experiment setup", "DockingH2"),
+                striped_table(
+                    [
+                        ["Component", "Effective configuration"],
+                        ["Receptor", receptor_setup],
+                        ["Ligand", ligand_setup],
+                        ["Docking engine", docking_label],
+                        [
+                            "Search box",
+                            "center "
+                            + vector_text(search_box.get("center"))
+                            + " Å; size "
+                            + vector_text(search_box.get("size"))
+                            + " Å",
+                        ],
+                        ["Docking parameters", docking_parameter_text],
+                    ],
+                    [43 * mm, 131 * mm],
+                ),
+            ]
+        )
+
+        analysis_rows = [
+            ["Analysis", "Effective configuration"],
+            [
+                "RMSD",
+                (
+                    f"{rmsd_config.get('method', 'n/a')}; "
+                    f"aligned={rmsd_config.get('aligned', False)}; "
+                    f"symmetry-corrected="
+                    f"{rmsd_config.get('symmetry_corrected', False)}"
+                ),
+            ],
+            [
+                "Clustering",
+                (
+                    f"{clustering_config.get('method', 'n/a')}; "
+                    f"threshold="
+                    f"{clustering_config.get('threshold_angstrom', 'n/a')} Å"
+                ),
+            ],
+            [
+                "Contacts",
+                (
+                    f"heavy-atom <= "
+                    f"{interaction_config.get('contact_cutoff_angstrom', 'n/a')} Å; "
+                    f"hydrophobic <= "
+                    f"{interaction_config.get('hydrophobic_cutoff_angstrom', 'n/a')} Å"
+                ),
+            ],
+            [
+                "Hydrogen bonds",
+                (
+                    f"D-A <= "
+                    f"{interaction_config.get('hydrogen_bond_da_cutoff_angstrom', 'n/a')} Å; "
+                    f"H-A <= "
+                    f"{interaction_config.get('hydrogen_bond_ha_cutoff_angstrom', 'n/a')} Å; "
+                    f"angle >= "
+                    f"{interaction_config.get('hydrogen_bond_angle_degrees', 'n/a')}°"
+                ),
+            ],
+            [
+                "Putative salt bridges",
+                (
+                    f"distance <= "
+                    f"{interaction_config.get('salt_bridge_cutoff_angstrom', 'n/a')} Å; "
+                    f"ligand q+ >= "
+                    f"{interaction_config.get('ligand_positive_charge_min', 'n/a')}; "
+                    f"q- <= "
+                    f"{interaction_config.get('ligand_negative_charge_max', 'n/a')}"
+                ),
+            ],
+        ]
+        story.extend(
+            [
+                paragraph("Post-processing protocol", "DockingH3"),
+                striped_table(
+                    analysis_rows,
+                    [43 * mm, 131 * mm],
+                ),
+            ]
+        )
+
         metric_specs = [
             ("Ligands", len({task.ligand_id for task in report.tasks})),
-            ("Scored poses", len(scientific.poses)),
+            ("Retained poses", len(scientific.poses)),
             (
-                "Score range",
-                (
-                    "n/a"
-                    if scientific.score_min is None
-                    else f"{scientific.score_min:g} to {scientific.score_max:g}"
-                ),
+                "Best score",
+                "n/a"
+                if top_pose is None
+                else f"{top_pose.score_value:g} {top_pose.score_unit or ''}".strip(),
             ),
             (
-                "Spread",
-                (
-                    "n/a"
-                    if scientific.score_spread is None
-                    else f"{scientific.score_spread:g}"
-                ),
+                "Rank-1 family",
+                "n/a"
+                if top_family is None
+                else f"{top_family.pose_count} pose(s)",
             ),
         ]
         metric_cells = []
@@ -507,19 +665,61 @@ class ReportLabPipelineReporter:
                 ]
             )
         )
-        story.append(metrics)
-
         story.extend(
             [
-                paragraph("What happened?", "DockingH2"),
+                paragraph("3. Key findings", "DockingH2"),
+                metrics,
+                Spacer(1, 2 * mm),
                 paragraph(scientific.narrative.outcome, "DockingCallout"),
             ]
         )
+
+        if top_pose is not None:
+            finding_rows = [
+                ["Evidence", "Observation"],
+                [
+                    "Score",
+                    (
+                        f"Rank 1 = {top_pose.score_value:g} "
+                        f"{top_pose.score_unit or ''}"
+                        + (
+                            ""
+                            if rank_gap is None
+                            else f"; rank-1 -> rank-2 gap = {rank_gap:.3f}"
+                        )
+                    ),
+                ],
+                [
+                    "Geometry",
+                    (
+                        "No RMSD family available"
+                        if top_family is None
+                        else (
+                            f"{cluster_labels.get(top_family.cluster_id, 'cluster')} "
+                            f"contains {top_family.pose_count} pose(s); "
+                            f"RMSD range "
+                            f"{top_family.rmsd_min or 0:.3f}-"
+                            f"{top_family.rmsd_max or 0:.3f} Å"
+                        )
+                    ),
+                ],
+                [
+                    "Interactions",
+                    (
+                        f"{top_pose.hydrogen_bond_count} H-bond(s); "
+                        f"{len(top_pose.hydrophobic_residues)} hydrophobic "
+                        f"residue(s); {top_pose.salt_bridge_count} putative "
+                        "salt bridge(s)"
+                    ),
+                ],
+            ]
+            story.append(striped_table(finding_rows, [34 * mm, 140 * mm]))
+
         chart = score_chart(scientific)
         if chart is not None:
             story.extend(
                 [
-                    paragraph("Pose score profile", "DockingH2"),
+                    paragraph("Pose score profile", "DockingH3"),
                     chart,
                 ]
             )
@@ -536,19 +736,9 @@ class ReportLabPipelineReporter:
                 ): item
                 for item in scientific.evidence
             }
-            cluster_labels: dict[str, str] = {}
-            for pose in scientific.poses:
-                if (
-                    pose.cluster_id is not None
-                    and pose.cluster_id not in cluster_labels
-                ):
-                    cluster_labels[pose.cluster_id] = (
-                        f"C{len(cluster_labels) + 1}"
-                    )
             score_rows = [
                 [
                     "Rank",
-                    "Ligand",
                     "Score",
                     "Δ score",
                     "RMSD Å",
@@ -567,49 +757,46 @@ class ReportLabPipelineReporter:
                         pose.attempt_id,
                     )
                 )
-                delta = (
-                    ""
-                    if evidence is None or evidence.delta_to_rank1 is None
-                    else f"{evidence.delta_to_rank1:.3f}"
-                )
                 score_rows.append(
                     [
-                        pose.rank if pose.rank is not None else "—",
-                        pose.ligand_id,
+                        pose.rank if pose.rank is not None else "-",
                         _score_value(pose.score_value),
-                        delta,
                         (
-                            ""
+                            "-"
+                            if evidence is None or evidence.delta_to_rank1 is None
+                            else f"{evidence.delta_to_rank1:.3f}"
+                        ),
+                        (
+                            "-"
                             if pose.rmsd_to_rank1 is None
                             else f"{pose.rmsd_to_rank1:.3f}"
                         ),
                         (
-                            ""
+                            "-"
                             if pose.cluster_id is None
-                            else cluster_labels[pose.cluster_id]
+                            else cluster_labels.get(pose.cluster_id, "C?")
                         ),
                         (
-                            ""
+                            "-"
                             if pose.ligand_efficiency is None
-                            else f"{pose.ligand_efficiency:.3f} kcal/mol/HA"
+                            else f"{pose.ligand_efficiency:.3f}"
                         ),
                     ]
                 )
             story.extend(
                 [
-                    paragraph("Pose-level results", "DockingH2"),
+                    paragraph("4. Pose results", "DockingH2"),
                     striped_table(
                         score_rows,
                         [
-                            12 * mm,
+                            16 * mm,
+                            28 * mm,
+                            26 * mm,
+                            26 * mm,
                             22 * mm,
-                            24 * mm,
-                            22 * mm,
-                            24 * mm,
-                            22 * mm,
-                            48 * mm,
+                            56 * mm,
                         ],
-                        right_columns=(0, 2, 3, 4, 6),
+                        right_columns=(0, 1, 2, 3, 5),
                     ),
                 ]
             )
@@ -618,146 +805,217 @@ class ReportLabPipelineReporter:
             [
                 "Rank",
                 "H-bonds",
-                "Hydrophobic",
-                "H-bond residues",
                 "Hydrophobic residues",
+                "Putative salt bridges",
+                "Contact residues",
             ]
         ]
         for pose in scientific.poses:
-            if not (
-                pose.hydrogen_bond_count
-                or pose.hydrophobic_contact_count
-            ):
-                continue
             interaction_rows.append(
                 [
-                    pose.rank if pose.rank is not None else "—",
+                    pose.rank if pose.rank is not None else "-",
                     pose.hydrogen_bond_count,
-                    pose.hydrophobic_contact_count,
-                    ", ".join(pose.hydrogen_bond_residues) or "—",
-                    ", ".join(pose.hydrophobic_residues) or "—",
+                    len(pose.hydrophobic_residues),
+                    pose.salt_bridge_count,
+                    len(pose.contact_residues),
                 ]
             )
         if len(interaction_rows) > 1:
             story.extend(
                 [
-                    paragraph("Protein–ligand interaction profile", "DockingH2"),
+                    paragraph("Interaction summary by pose", "DockingH3"),
                     striped_table(
                         interaction_rows,
                         [
-                            14 * mm,
                             20 * mm,
-                            24 * mm,
-                            58 * mm,
-                            58 * mm,
+                            28 * mm,
+                            45 * mm,
+                            45 * mm,
+                            36 * mm,
                         ],
-                        right_columns=(0, 1, 2),
+                        right_columns=(0, 1, 2, 3, 4),
                     ),
                 ]
             )
 
-        evidence_rows = [
-            [
-                "Ligand / score family",
-                "Rank",
-                "Δ score",
-                "RMSD Å",
-                "Cluster n",
-                "Ligand efficiency",
-                "Recurring cluster interactions",
-            ]
-        ]
-        for item in scientific.evidence:
-            recurrent = []
-            for support in item.cluster_hydrogen_bond_support:
-                if support.pose_count > 1:
-                    recurrent.append(
-                        f"H-bond {support.residue_label} "
-                        f"{support.pose_count}/{support.cluster_size}"
-                    )
-            for support in item.cluster_hydrophobic_support:
-                if support.pose_count > 1:
-                    recurrent.append(
-                        f"Hydrophobic {support.residue_label} "
-                        f"{support.pose_count}/{support.cluster_size}"
-                    )
-            evidence_rows.append(
+        if scientific.families:
+            family_rows = [
                 [
-                    (
-                        f"{item.ligand_id} | {item.method}@"
-                        f"{item.method_version}/{item.score_kind}"
-                    ),
-                    item.rank if item.rank is not None else "—",
-                    (
-                        "—"
-                        if item.delta_to_rank1 is None
-                        else f"{item.delta_to_rank1:.3f}"
-                    ),
-                    (
-                        "—"
-                        if item.rmsd_to_rank1 is None
-                        else f"{item.rmsd_to_rank1:.3f}"
-                    ),
-                    item.cluster_size if item.cluster_size is not None else "—",
-                    (
-                        "—"
-                        if item.ligand_efficiency is None
-                        else f"{item.ligand_efficiency:.3f}"
-                    ),
-                    ", ".join(recurrent) or "—",
+                    "Family",
+                    "Poses",
+                    "Best rank",
+                    "RMSD range Å",
+                    "Recurrent H-bonds",
+                    "Recurrent hydrophobic",
                 ]
-            )
-        if len(evidence_rows) > 1:
+            ]
+            for family in scientific.families:
+                hbonds = ", ".join(
+                    item.residue_label
+                    for item in family.recurrent_hydrogen_bonds
+                ) or "-"
+                hydrophobic_count = len(
+                    family.recurrent_hydrophobic_contacts
+                )
+                family_rows.append(
+                    [
+                        cluster_labels.get(family.cluster_id, "C?"),
+                        family.pose_count,
+                        family.best_rank if family.best_rank is not None else "-",
+                        (
+                            "-"
+                            if family.rmsd_min is None
+                            else f"{family.rmsd_min:.3f}-{family.rmsd_max:.3f}"
+                        ),
+                        hbonds,
+                        (
+                            f"{hydrophobic_count} residue(s)"
+                            if hydrophobic_count
+                            else "-"
+                        ),
+                    ]
+                )
             story.extend(
                 [
-                    paragraph("Pose evidence summary", "DockingH2"),
+                    paragraph("5. Pose-family evidence", "DockingH2"),
                     paragraph(
-                        "Independent score, geometry, efficiency, and "
-                        "interaction evidence are shown side by side; no "
-                        "composite evidence score is calculated.",
+                        "Recurrence is summarized at the structural-family "
+                        "level. Values are pose-family support, not molecular-"
+                        "dynamics occupancy.",
                         "DockingSubtitle",
                     ),
                     striped_table(
-                        evidence_rows,
+                        family_rows,
                         [
-                            38 * mm,
-                            12 * mm,
                             18 * mm,
-                            18 * mm,
-                            18 * mm,
-                            24 * mm,
-                            46 * mm,
+                            16 * mm,
+                            20 * mm,
+                            29 * mm,
+                            58 * mm,
+                            33 * mm,
                         ],
-                        right_columns=(1, 2, 3, 4, 5),
+                        right_columns=(1, 2),
                     ),
                 ]
             )
 
+        interpretation_blocks = []
+        if top_pose is not None:
+            interpretation_blocks.extend(
+                [
+                    paragraph("Score evidence", "DockingH3"),
+                    paragraph(
+                        (
+                            f"Vina ranks the leading pose at "
+                            f"{top_pose.score_value:g} "
+                            f"{top_pose.score_unit or ''}."
+                            + (
+                                ""
+                                if rank_gap is None
+                                else (
+                                    f" The rank-1 to rank-2 separation is "
+                                    f"{rank_gap:.3f}."
+                                )
+                            )
+                        ),
+                        "DockingBody",
+                    ),
+                ]
+            )
+        if top_family is not None:
+            interpretation_blocks.extend(
+                [
+                    paragraph("Structural evidence", "DockingH3"),
+                    paragraph(
+                        (
+                            f"The leading family "
+                            f"{cluster_labels.get(top_family.cluster_id, 'C?')} "
+                            f"contains {top_family.pose_count} pose(s) with an "
+                            f"RMSD range of {top_family.rmsd_min:.3f}-"
+                            f"{top_family.rmsd_max:.3f} Å."
+                        ),
+                        "DockingBody",
+                    ),
+                ]
+            )
+            recurrent_hbonds = ", ".join(
+                item.residue_label
+                for item in top_family.recurrent_hydrogen_bonds
+            )
+            if recurrent_hbonds:
+                interpretation_blocks.extend(
+                    [
+                        paragraph("Interaction evidence", "DockingH3"),
+                        paragraph(
+                            "Hydrogen-bond residues recurring across the "
+                            f"leading pose family: {recurrent_hbonds}.",
+                            "DockingBody",
+                        ),
+                    ]
+                )
+
         story.extend(
             [
-                paragraph("Interpretation", "DockingH2"),
-                bullets(scientific.narrative.interpretation),
+                paragraph("6. Interpretation", "DockingH2"),
+                *interpretation_blocks,
                 KeepTogether(
                     [
-                        paragraph("Conclusion", "DockingH2"),
+                        paragraph("7. Conclusion", "DockingH2"),
                         paragraph(
                             scientific.narrative.conclusion,
                             "DockingCallout",
                         ),
                     ]
                 ),
-                paragraph("What this result does not establish", "DockingH2"),
+                paragraph("8. Limitations and next analyses", "DockingH2"),
+                paragraph("What this result does not establish", "DockingH3"),
                 bullets(scientific.narrative.limitations),
-                paragraph("Recommended next analyses", "DockingH2"),
+                paragraph("Recommended next analyses", "DockingH3"),
                 bullets(scientific.narrative.next_steps),
-                Spacer(1, 9 * mm),
-                paragraph("Reproducibility Appendix", "DockingTitle"),
+                PageBreak(),
+                paragraph("Appendix A - Full interaction details", "DockingTitle"),
+                paragraph(
+                    "Full residue lists are retained here so the main report "
+                    "can remain concise.",
+                    "DockingSubtitle",
+                ),
+            ]
+        )
+
+        detail_rows = [
+            [
+                "Rank",
+                "H-bond residues",
+                "Hydrophobic residues",
+                "Putative salt-bridge residues",
+            ]
+        ]
+        for pose in scientific.poses:
+            detail_rows.append(
+                [
+                    pose.rank if pose.rank is not None else "-",
+                    ", ".join(pose.hydrogen_bond_residues) or "-",
+                    ", ".join(pose.hydrophobic_residues) or "-",
+                    ", ".join(pose.salt_bridge_residues) or "-",
+                ]
+            )
+        if len(detail_rows) > 1:
+            story.append(
+                striped_table(
+                    detail_rows,
+                    [14 * mm, 48 * mm, 68 * mm, 44 * mm],
+                    right_columns=(0,),
+                )
+            )
+
+        story.extend(
+            [
+                Spacer(1, 6 * mm),
+                paragraph("Appendix B - Reproducibility and provenance", "DockingTitle"),
                 paragraph(
                     "Technical identities and execution provenance are retained "
-                    "here for audit and reconstruction, separate from the "
-                    "scientific narrative. Scientific identity remains anchored "
-                    "by the durable run manifest, source hashes, prepared "
-                    "artifacts, task/attempt history, and captured toolchain.",
+                    "for audit and reconstruction, separate from the scientific "
+                    "narrative.",
                     "DockingSubtitle",
                 ),
             ]

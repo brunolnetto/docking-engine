@@ -4,6 +4,8 @@ from dataclasses import asdict
 import json
 from typing import Protocol, runtime_checkable
 
+from moldock.domain.common import canonical_json
+
 from .model import PipelineReport
 
 
@@ -48,6 +50,9 @@ class JsonPipelineReporter:
             "prepared_receptor_id": report.prepared_receptor_id,
             "prepared_ligand_ids": list(
                 report.prepared_ligand_ids
+            ),
+            "configuration": json.loads(
+                canonical_json(report.experiment_configuration)
             ),
             "provenance": _provenance_payload(report),
             "task_count": report.task_count,

@@ -13,6 +13,9 @@ from .repository import ScientificResultRepository
 
 @runtime_checkable
 class ScientificResultInterpreter(Protocol):
+    @property
+    def analysis_configuration(self) -> dict[str, object]: ...
+
     def interpret(
         self,
         *,
@@ -53,6 +56,37 @@ class VinaResultInterpreter:
             interaction_analyzer
             or PoseInteractionAnalyzer(repository=repository)
         )
+
+    @property
+    def analysis_configuration(self) -> dict[str, object]:
+        analyzer = self._analyzer
+        interactions = self._interaction_analyzer
+        return {
+            "rmsd": {
+                "method": "pdbqt_atom_order_direct_rmsd",
+                "method_version": analyzer.METHOD_VERSION,
+                "aligned": False,
+                "symmetry_corrected": False,
+            },
+            "clustering": {
+                "method": "rank_ordered_leader_rmsd",
+                "method_version": analyzer.METHOD_VERSION,
+                "threshold_angstrom": analyzer._threshold,
+            },
+            "interactions": {
+                "method": "pdbqt_geometric_interactions",
+                "method_version": interactions.METHOD_VERSION,
+                "contact_cutoff_angstrom": interactions._contact_cutoff,
+                "hydrophobic_cutoff_angstrom": interactions._hydrophobic_cutoff,
+                "hydrogen_bond_da_cutoff_angstrom": interactions._hbond_da_cutoff,
+                "hydrogen_bond_ha_cutoff_angstrom": interactions._hbond_ha_cutoff,
+                "hydrogen_bond_angle_degrees": interactions._hbond_angle,
+                "donor_hydrogen_cutoff_angstrom": interactions._donor_h_cutoff,
+                "salt_bridge_cutoff_angstrom": interactions._salt_bridge_cutoff,
+                "ligand_positive_charge_min": interactions._ligand_positive_charge_min,
+                "ligand_negative_charge_max": interactions._ligand_negative_charge_max,
+            },
+        }
 
     def interpret(
         self,

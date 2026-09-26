@@ -256,6 +256,53 @@ class OfflineDockingPipeline:
                 task.task_id for task in manifest.tasks
             ),
             toolchain_snapshot=toolchain_snapshot,
+            experiment_configuration={
+                "molecular_inputs": {
+                    "receptor": {
+                        "receptor_id": spec.receptor_request.receptor_id,
+                        "source_format": spec.receptor_request.source_format,
+                        "preparation_method": spec.receptor_request.protocol.method,
+                        "preparation_version": spec.receptor_request.protocol.method_version,
+                        "preparation_parameters": spec.receptor_request.protocol.parameters,
+                    },
+                    "ligands": [
+                        {
+                            "ligand_id": request.ligand_id,
+                            "source_format": request.source_format,
+                            "preparation_method": request.protocol.method,
+                            "preparation_version": request.protocol.method_version,
+                            "preparation_parameters": request.protocol.parameters,
+                        }
+                        for request in spec.ligand_requests
+                    ],
+                },
+                "docking_protocol": {
+                    "backend": protocol.backend,
+                    "backend_version": protocol.backend_version,
+                    "parameters": protocol.parameters,
+                    "search_box": {
+                        "center": [
+                            spec.search_space.center_x,
+                            spec.search_space.center_y,
+                            spec.search_space.center_z,
+                        ],
+                        "size": [
+                            spec.search_space.size_x,
+                            spec.search_space.size_y,
+                            spec.search_space.size_z,
+                        ],
+                    },
+                },
+                "analysis_protocol": (
+                    getattr(
+                        self._interpreter,
+                        "analysis_configuration",
+                        {},
+                    )
+                    if self._interpreter is not None
+                    else {}
+                ),
+            },
         )
         if self._run_manifests is not None:
             self._run_manifests.register(run_manifest)

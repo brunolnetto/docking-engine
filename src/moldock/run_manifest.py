@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 from moldock.domain import DomainValidationError
-from moldock.domain.common import content_id
+from moldock.domain.common import content_id, deep_freeze
 from moldock.toolchain import ToolchainSnapshot
 
 
@@ -21,6 +22,7 @@ class RunManifest:
     prepared_ligand_ids: tuple[str, ...]
     task_ids: tuple[str, ...]
     toolchain_snapshot: ToolchainSnapshot | None = None
+    experiment_configuration: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -37,6 +39,12 @@ class RunManifest:
                 raise DomainValidationError(
                     f"{field_name} must not be blank"
                 )
+
+        object.__setattr__(
+            self,
+            "experiment_configuration",
+            deep_freeze(self.experiment_configuration),
+        )
 
         for ligand_id, source_sha256 in self.ligand_sources:
             if not ligand_id.strip() or not source_sha256.strip():
@@ -69,6 +77,7 @@ class RunManifest:
                 "prepared_ligand_ids": self.prepared_ligand_ids,
                 "task_ids": self.task_ids,
                 "toolchain_snapshot": self.toolchain_snapshot,
+                "experiment_configuration": self.experiment_configuration,
             },
         )
 

@@ -202,3 +202,22 @@ def test_interpreter_skips_interaction_enrichment_for_non_structural_context():
     )
 
     assert interactions.calls == []
+
+
+
+def test_vina_interpreter_exposes_effective_analysis_configuration():
+    interpreter = VinaResultInterpreter(
+        artifact_store=MemoryArtifactStore(),
+        repository=InMemoryScientificResultRepository(),
+        method_version="1.2.7",
+    )
+
+    config = interpreter.analysis_configuration
+
+    assert config["clustering"]["threshold_angstrom"] == 2.0
+    assert config["rmsd"]["aligned"] is False
+    assert config["rmsd"]["symmetry_corrected"] is False
+    assert config["interactions"]["contact_cutoff_angstrom"] == 4.0
+    assert config["interactions"]["hydrophobic_cutoff_angstrom"] == 4.5
+    assert config["interactions"]["hydrogen_bond_angle_degrees"] == 120.0
+    assert config["interactions"]["salt_bridge_cutoff_angstrom"] == 5.5
