@@ -49,6 +49,7 @@ class JsonPipelineReporter:
             "prepared_ligand_ids": list(
                 report.prepared_ligand_ids
             ),
+            "configuration": report.experiment_configuration,
             "provenance": _provenance_payload(report),
             "task_count": report.task_count,
             "succeeded_count": report.succeeded_count,
