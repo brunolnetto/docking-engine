@@ -23,9 +23,11 @@ from moldock.repositories import (
     ArtifactRepository,
     PreparedInputRepository,
     TaskRepository,
+    RunManifestRepository,
 )
 from moldock.results import ScientificResultInterpreter
 from moldock.storage import ArtifactStore
+from moldock.pipeline.run_manifest import RunManifest
 from moldock.toolchain import (
     ToolchainPreflight,
     ToolchainSnapshot,
@@ -118,6 +120,7 @@ class OfflineDockingPipeline:
         clock: Callable[[], datetime],
         result_interpreter: ScientificResultInterpreter | None = None,
         toolchain_preflight: ToolchainPreflight | None = None,
+        run_manifest_repository: RunManifestRepository | None = None,
     ) -> None:
         self._receptor_preparer = receptor_preparer
         self._ligand_preparer = ligand_preparer
@@ -129,6 +132,7 @@ class OfflineDockingPipeline:
         self._clock = clock
         self._interpreter = result_interpreter
         self._toolchain_preflight = toolchain_preflight
+        self._run_manifests = run_manifest_repository
 
     def run(self, spec: OfflineDockingSpec) -> PipelineRunResult:
         toolchain_snapshot = None
@@ -213,6 +217,38 @@ class OfflineDockingPipeline:
         for task in manifest.tasks:
             self._tasks.register(task)
 
+        run_manifest = RunManifest(
+            run_id=spec.run_id,
+            experiment_id=experiment.experiment_id,
+            protocol_id=protocol.protocol_id,
+            task_manifest_id=manifest.manifest_id,
+            search_space_id=spec.search_space.search_space_id,
+            receptor_id=spec.receptor_request.receptor_id,
+            receptor_source_sha256=(
+                spec.receptor_request.source_sha256
+            ),
+            ligand_sources=tuple(
+                (
+                    request.ligand_id,
+                    request.source_sha256,
+                )
+                for request in spec.ligand_requests
+            ),
+            prepared_receptor_id=(
+                prepared_receptor.prepared_receptor_id
+            ),
+            prepared_ligand_ids=tuple(
+                ligand.prepared_ligand_id
+                for ligand in prepared_ligands
+            ),
+            task_ids=tuple(
+                task.task_id for task in manifest.tasks
+            ),
+            toolchain_snapshot=toolchain_snapshot,
+        )
+        if self._run_manifests is not None:
+            self._run_manifests.register(run_manifest)
+
         resolver = PersistentDockingInputResolver(
             prepared_inputs=self._prepared_inputs,
             artifact_store=self._store,
@@ -244,23 +280,7 @@ class OfflineDockingPipeline:
         ) is not None:
             pass
 
-        return PipelineRunResult(
-            run_id=spec.run_id,
-            experiment_id=experiment.experiment_id,
-            protocol_id=protocol.protocol_id,
-            manifest_id=manifest.manifest_id,
-            prepared_receptor_id=(
-                prepared_receptor.prepared_receptor_id
-            ),
-            prepared_ligand_ids=tuple(
-                ligand.prepared_ligand_id
-                for ligand in prepared_ligands
-            ),
-            task_ids=tuple(
-                task.task_id for task in manifest.tasks
-            ),
-            toolchain_snapshot=toolchain_snapshot,
-        )
+        return run_manifest.to_pipeline_result()
 
     @staticmethod
     def _validate_receptor_artifact(request, artifact) -> None:
