@@ -901,57 +901,63 @@ class ReportLabPipelineReporter:
 
         interpretation_blocks = []
         if top_pose is not None:
-            interpretation_blocks.extend(
-                [
-                    paragraph("Score evidence", "DockingH3"),
-                    paragraph(
-                        (
-                            f"Vina ranks the leading pose at "
-                            f"{top_pose.score_value:g} "
-                            f"{top_pose.score_unit or ''}."
-                            + (
-                                ""
-                                if rank_gap is None
-                                else (
-                                    f" The rank-1 to rank-2 separation is "
-                                    f"{rank_gap:.3f}."
+            interpretation_blocks.append(
+                KeepTogether(
+                    [
+                        paragraph("Score evidence", "DockingH3"),
+                        paragraph(
+                            (
+                                f"Vina ranks the leading pose at "
+                                f"{top_pose.score_value:g} "
+                                f"{top_pose.score_unit or ''}."
+                                + (
+                                    ""
+                                    if rank_gap is None
+                                    else (
+                                        f" The rank-1 to rank-2 separation is "
+                                        f"{rank_gap:.3f}."
+                                    )
                                 )
-                            )
+                            ),
+                            "DockingBody",
                         ),
-                        "DockingBody",
-                    ),
-                ]
+                    ]
+                )
             )
         if top_family is not None:
-            interpretation_blocks.extend(
-                [
-                    paragraph("Structural evidence", "DockingH3"),
-                    paragraph(
-                        (
-                            f"The leading family "
-                            f"{cluster_labels.get(top_family.cluster_id, 'C?')} "
-                            f"contains {top_family.pose_count} pose(s) with an "
-                            f"RMSD range of {top_family.rmsd_min:.3f}-"
-                            f"{top_family.rmsd_max:.3f} Å."
+            interpretation_blocks.append(
+                KeepTogether(
+                    [
+                        paragraph("Structural evidence", "DockingH3"),
+                        paragraph(
+                            (
+                                f"The leading family "
+                                f"{cluster_labels.get(top_family.cluster_id, 'C?')} "
+                                f"contains {top_family.pose_count} pose(s) with an "
+                                f"RMSD range of {top_family.rmsd_min:.3f}-"
+                                f"{top_family.rmsd_max:.3f} Å."
+                            ),
+                            "DockingBody",
                         ),
-                        "DockingBody",
-                    ),
-                ]
+                    ]
+                )
             )
             recurrent_hbonds = ", ".join(
                 item.residue_label
                 for item in top_family.recurrent_hydrogen_bonds
             )
             if recurrent_hbonds:
-                interpretation_blocks.extend(
-                    [
-                        paragraph("Interaction evidence", "DockingH3"),
-                        paragraph(
-                            "Hydrogen-bond residues recurring across the "
-                            f"leading pose family: {recurrent_hbonds}.",
-                            "DockingBody",
-                        ),
-                    ]
+                interpretation_blocks.append(
+                    KeepTogether(
+                        [
+                            paragraph("Interaction evidence", "DockingH3"),
+                            paragraph(
+                                "Hydrogen-bond residues recurring across the "
+                                f"leading pose family: {recurrent_hbonds}.",
+                                "DockingBody",
+                            ),
+                        ]
+                    )
                 )
 
         story.extend(
