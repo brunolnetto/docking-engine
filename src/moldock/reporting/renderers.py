@@ -86,6 +86,10 @@ class JsonPipelineReporter:
                         asdict(metric)
                         for metric in task.metrics
                     ],
+                    "interactions": [
+                        asdict(interaction)
+                        for interaction in task.interactions
+                    ],
                     "clusters": [
                         asdict(cluster)
                         for cluster in task.clusters
@@ -271,5 +275,28 @@ class MarkdownPipelineReporter:
                     f"{_cell(score.method)} | "
                     f"{_cell(score.method_version)} |"
                 )
+
+        if any(task.interactions for task in report.tasks):
+            lines.extend(
+                [
+                    "",
+                    "## Protein-ligand interactions",
+                    "",
+                    "| Ligand | Pose | Kind | Residue | Distance Å | Method |",
+                    "| --- | --- | --- | --- | ---: | --- |",
+                ]
+            )
+            for task in report.tasks:
+                for interaction in task.interactions:
+                    residue = interaction.receptor_residue_id
+                    lines.append(
+                        f"| {_cell(task.ligand_id)} | "
+                        f"{_cell(interaction.pose_id)} | "
+                        f"{_cell(interaction.kind)} | "
+                        f"{_cell(residue)} | "
+                        f"{interaction.distance_angstrom} | "
+                        f"{_cell(interaction.method)}@"
+                        f"{_cell(interaction.method_version)} |"
+                    )
 
         return "\n".join(lines) + "\n"
