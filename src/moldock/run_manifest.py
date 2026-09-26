@@ -73,7 +73,7 @@ class RunManifest:
         )
 
     def to_pipeline_result(self):
-        from .offline import PipelineRunResult
+        from moldock.pipeline.offline import PipelineRunResult
 
         return PipelineRunResult(
             run_id=self.run_id,
