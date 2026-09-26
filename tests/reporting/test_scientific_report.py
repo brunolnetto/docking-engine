@@ -3,6 +3,7 @@ import pytest
 from moldock.domain import FailureKind, TaskStatus
 from moldock.reporting import (
     ClusterObservation,
+    InteractionObservation,
     MetricObservation,
     PipelineReport,
     RankingObservation,
@@ -79,6 +80,38 @@ def _successful_report():
                 method_version="1",
             )
         )
+    interactions = (
+        InteractionObservation(
+            interaction_id="hb_1",
+            pose_id="pose_1",
+            kind="hydrogen_bond",
+            receptor_atom_serial=100,
+            receptor_atom_name="NZ",
+            receptor_residue_name="LYS",
+            receptor_chain="A",
+            receptor_residue_number="271",
+            ligand_atom_serial=10,
+            ligand_atom_name="O1",
+            distance_angstrom=2.8,
+            method="pdbqt_geometric_interactions",
+            method_version="1",
+        ),
+        InteractionObservation(
+            interaction_id="hydro_1",
+            pose_id="pose_1",
+            kind="hydrophobic_contact",
+            receptor_atom_serial=101,
+            receptor_atom_name="CD1",
+            receptor_residue_name="LEU",
+            receptor_chain="A",
+            receptor_residue_number="248",
+            ligand_atom_serial=11,
+            ligand_atom_name="C1",
+            distance_angstrom=3.6,
+            method="pdbqt_geometric_interactions",
+            method_version="1",
+        ),
+    )
     task = TaskPipelineReport(
         task_id="task_1",
         ligand_id="STI",
@@ -93,6 +126,7 @@ def _successful_report():
         rankings=tuple(rankings),
         metrics=tuple(metrics),
         clusters=tuple(clusters),
+        interactions=interactions,
     )
     return PipelineReport(
         run_id="run_1",
@@ -133,6 +167,14 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert any("4 RMSD cluster" in item for item in report.narrative.interpretation)
     assert "shares its 2.0 Å RMSD cluster" in report.narrative.conclusion
     assert "substantial structural diversity" in report.narrative.conclusion
+    assert report.poses[0].hydrogen_bond_count == 1
+    assert report.poses[0].hydrophobic_contact_count == 1
+    assert report.poses[0].hydrogen_bond_residues == ("A:LYS271",)
+    assert report.poses[0].hydrophobic_residues == ("A:LEU248",)
+    assert any(
+        "Rank 1 has" in item and "hydrogen bond" in item
+        for item in report.narrative.interpretation
+    )
 
 
 def test_scientific_report_limits_interpretation_for_failed_experiment():

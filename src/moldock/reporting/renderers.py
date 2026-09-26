@@ -90,6 +90,10 @@ class JsonPipelineReporter:
                         asdict(cluster)
                         for cluster in task.clusters
                     ],
+                    "interactions": [
+                        asdict(interaction)
+                        for interaction in task.interactions
+                    ],
                 }
                 for task in report.tasks
             ],

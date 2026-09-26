@@ -37,6 +37,31 @@ class MetricObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionObservation:
+    interaction_id: str
+    pose_id: str
+    kind: str
+    receptor_atom_serial: int
+    receptor_atom_name: str
+    receptor_residue_name: str
+    receptor_chain: str
+    receptor_residue_number: str
+    ligand_atom_serial: int
+    ligand_atom_name: str
+    distance_angstrom: float
+    method: str
+    method_version: str
+
+    @property
+    def residue_label(self) -> str:
+        chain = f"{self.receptor_chain}:" if self.receptor_chain else ""
+        return (
+            f"{chain}{self.receptor_residue_name}"
+            f"{self.receptor_residue_number}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ClusterObservation:
     assignment_id: str
     pose_id: str
@@ -60,6 +85,7 @@ class TaskPipelineReport:
     rankings: tuple[RankingObservation, ...]
     metrics: tuple[MetricObservation, ...] = ()
     clusters: tuple[ClusterObservation, ...] = ()
+    interactions: tuple[InteractionObservation, ...] = ()
 
     @property
     def artifact_count(self) -> int:
