@@ -717,11 +717,13 @@ class ReportLabPipelineReporter:
 
         chart = score_chart(scientific)
         if chart is not None:
-            story.extend(
-                [
-                    paragraph("Pose score profile", "DockingH3"),
-                    chart,
-                ]
+            story.append(
+                KeepTogether(
+                    [
+                        paragraph("Pose score profile", "DockingH3"),
+                        chart,
+                    ]
+                )
             )
 
         if scientific.poses:
