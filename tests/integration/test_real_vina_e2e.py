@@ -59,7 +59,11 @@ def test_real_meeko_vina_pipeline_generates_restart_safe_report(tmp_path):
     assert first_payload["attempt_count"] == 1
     assert first_payload["pose_count"] >= 1
     assert first_payload["score_count"] >= 1
+    interactions = first_payload["tasks"][0]["interactions"]
+    assert interactions
+    assert any(item["kind"] == "contact" for item in interactions)
     assert (
+
         first_payload["provenance"]["toolchain"]["vina"]["version"]
         == "1.2.7"
     )
