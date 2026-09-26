@@ -1,5 +1,6 @@
 import pytest
 
+import moldock.domain.analysis as analysis_module
 import moldock.domain.interaction as interaction_module
 import moldock.domain.result as result_module
 from moldock.domain import (
@@ -259,7 +260,7 @@ def test_repository_detects_metric_and_cluster_id_collisions(monkeypatch):
     repo.register_pose(pose)
 
     monkeypatch.setattr(
-        result_module,
+        analysis_module,
         "content_id",
         lambda prefix, value: f"{prefix}_forced_collision",
     )
