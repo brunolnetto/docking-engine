@@ -400,7 +400,7 @@ def test_metric_registration_is_idempotent_and_detects_collision(
         assert repo.list_metrics_for_pose(pose.pose_id) == (metric,)
 
         monkeypatch.setattr(
-            result_module,
+            analysis_module,
             "content_id",
             lambda prefix, value: f"{prefix}_forced_metric_collision",
         )
@@ -430,7 +430,7 @@ def test_cluster_registration_is_idempotent_and_detects_collision(
         )
 
         monkeypatch.setattr(
-            result_module,
+            analysis_module,
             "content_id",
             lambda prefix, value: f"{prefix}_forced_cluster_collision",
         )
