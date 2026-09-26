@@ -21,6 +21,9 @@ class ScientificPoseResult:
     rmsd_to_rank1: float | None = None
     ligand_efficiency: float | None = None
     cluster_id: str | None = None
+    contact_residues: tuple[str, ...] = ()
+    hydrogen_bond_count: int = 0
+    hydrophobic_contact_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +102,23 @@ class ScientificReportBuilder:
                 for item in task.clusters
                 if item.method == "rank_ordered_leader_rmsd"
             }
+            contacts_by_pose: dict[str, set[str]] = {}
+            hbond_count_by_pose: dict[str, int] = {}
+            hydrophobic_count_by_pose: dict[str, int] = {}
+            for interaction in task.interactions:
+                if interaction.kind == "residue_contact":
+                    contacts_by_pose.setdefault(
+                        interaction.pose_id,
+                        set(),
+                    ).add(interaction.receptor_residue)
+                elif interaction.kind == "hydrogen_bond":
+                    hbond_count_by_pose[interaction.pose_id] = (
+                        hbond_count_by_pose.get(interaction.pose_id, 0) + 1
+                    )
+                elif interaction.kind == "hydrophobic_contact":
+                    hydrophobic_count_by_pose[interaction.pose_id] = (
+                        hydrophobic_count_by_pose.get(interaction.pose_id, 0) + 1
+                    )
             for score in task.scores:
                 if not isfinite(score.value):
                     continue
@@ -118,6 +138,17 @@ class ScientificReportBuilder:
                             "ligand_efficiency"
                         ),
                         cluster_id=clusters_by_pose.get(score.pose_id),
+                        contact_residues=tuple(
+                            sorted(contacts_by_pose.get(score.pose_id, ()))
+                        ),
+                        hydrogen_bond_count=hbond_count_by_pose.get(
+                            score.pose_id,
+                            0,
+                        ),
+                        hydrophobic_contact_count=hydrophobic_count_by_pose.get(
+                            score.pose_id,
+                            0,
+                        ),
                     )
                 )
 
@@ -335,17 +366,74 @@ class ScientificReportBuilder:
                     "ligand efficiency measurement."
                 )
 
-            limitations.append(
-                "Protein-ligand contact chemistry is not yet included: "
-                "hydrogen bonds, hydrophobic contacts, salt bridges, and "
-                "residue-level interaction fingerprints remain the next "
-                "analysis layer."
-            )
+            profiled = [
+                pose
+                for pose in poses
+                if (
+                    pose.contact_residues
+                    or pose.hydrogen_bond_count
+                    or pose.hydrophobic_contact_count
+                )
+            ]
+            if profiled:
+                rank1 = next(
+                    (pose for pose in profiled if pose.rank == 1),
+                    profiled[0],
+                )
+                residues = ", ".join(rank1.contact_residues[:8]) or "none"
+                interpretation.append(
+                    f"Rank 1 contacted {len(rank1.contact_residues)} receptor "
+                    f"residue(s), with {rank1.hydrogen_bond_count} hydrogen "
+                    f"bond(s) and {rank1.hydrophobic_contact_count} "
+                    f"hydrophobic contact(s). Contact residues: {residues}."
+                )
+                ranked_profiled = sorted(
+                    (
+                        pose
+                        for pose in profiled
+                        if pose.rank is not None
+                    ),
+                    key=lambda pose: pose.rank or 10**9,
+                )[:3]
+                if len(ranked_profiled) >= 2:
+                    conserved = set(ranked_profiled[0].contact_residues)
+                    for pose in ranked_profiled[1:]:
+                        conserved.intersection_update(pose.contact_residues)
+                    if conserved:
+                        conserved_text = ", ".join(sorted(conserved))
+                        interpretation.append(
+                            f"Across the top {len(ranked_profiled)} ranked "
+                            f"poses, conserved residue contacts were: "
+                            f"{conserved_text}."
+                        )
+                        conclusion += (
+                            f" The top-ranked poses retain contacts with "
+                            f"{len(conserved)} common receptor residue(s), "
+                            "providing an interaction-level signal to inspect "
+                            "alongside score and RMSD."
+                        )
+                limitations.append(
+                    "Interaction profiling v1 uses AutoDock atom types and "
+                    "explicit geometric cutoffs. Hydrogen-bond and hydrophobic "
+                    "labels are method-dependent structural annotations, not "
+                    "experimental interaction measurements."
+                )
+                limitations.append(
+                    "Salt bridges, pi-stacking, pi-cation interactions, "
+                    "halogen bonds, water bridges, and metal coordination are "
+                    "not yet modeled."
+                )
+            else:
+                limitations.append(
+                    "No durable protein-ligand interaction observations were "
+                    "available for the analyzed poses."
+                )
+
             next_steps.extend(
                 [
                     "Inspect the leading RMSD cluster structurally in the binding site.",
-                    "Characterize protein-ligand contacts for the leading pose families.",
-                    "Add chemistry-aware hydrogen-bond and hydrophobic-contact profiling.",
+                    "Review conserved residue contacts across leading pose families.",
+                    "Extend interaction profiling to salt bridges, aromatic interactions, and water-mediated contacts.",
                 ]
             )
         if report.failed_count:
