@@ -6,7 +6,10 @@ from moldock.domain import (
     DomainValidationError,
     Pose,
     PoseInteraction,
+    PoseClusterAssignment,
     PoseInteractionKind,
+    PoseMetric,
+    PoseMetricKind,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -199,3 +202,78 @@ def test_repository_detects_interaction_id_collision(monkeypatch):
 
     with pytest.raises(DomainValidationError, match="conflicting"):
         repo.register_interaction(second)
+
+
+
+def make_metric(pose_id, value=1.0):
+    return PoseMetric(
+        pose_id=pose_id,
+        kind=PoseMetricKind.RMSD_TO_RANK1,
+        value=value,
+        unit="angstrom",
+        method="test",
+        method_version="1",
+    )
+
+
+def make_cluster(pose_id, cluster_id="cluster_1"):
+    return PoseClusterAssignment(
+        pose_id=pose_id,
+        cluster_id=cluster_id,
+        method="rank_ordered_leader_rmsd",
+        method_version="1",
+    )
+
+
+def test_repository_registers_metrics_and_clusters_idempotently():
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    metric = make_metric(pose.pose_id)
+    cluster = make_cluster(pose.pose_id)
+    repo.register_pose(pose)
+
+    repo.register_metric(metric)
+    repo.register_metric(metric)
+    repo.register_cluster_assignment(cluster)
+    repo.register_cluster_assignment(cluster)
+
+    assert repo.list_metrics_for_pose(pose.pose_id) == (metric,)
+    assert repo.list_cluster_assignments_for_pose(pose.pose_id) == (cluster,)
+    assert repo.list_metrics_for_pose("missing") == ()
+    assert repo.list_cluster_assignments_for_pose("missing") == ()
+
+
+def test_repository_rejects_unknown_pose_for_metric_and_cluster():
+    repo = InMemoryScientificResultRepository()
+
+    with pytest.raises(DomainValidationError, match="unknown pose"):
+        repo.register_metric(make_metric("missing"))
+
+    with pytest.raises(DomainValidationError, match="unknown pose"):
+        repo.register_cluster_assignment(make_cluster("missing"))
+
+
+def test_repository_detects_metric_and_cluster_id_collisions(monkeypatch):
+    repo = InMemoryScientificResultRepository()
+    pose = make_pose()
+    repo.register_pose(pose)
+
+    monkeypatch.setattr(
+        result_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
+    )
+
+    first_metric = make_metric(pose.pose_id, value=1.0)
+    second_metric = make_metric(pose.pose_id, value=2.0)
+    assert first_metric.metric_id == second_metric.metric_id
+    repo.register_metric(first_metric)
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register_metric(second_metric)
+
+    first_cluster = make_cluster(pose.pose_id, "cluster_1")
+    second_cluster = make_cluster(pose.pose_id, "cluster_2")
+    assert first_cluster.assignment_id == second_cluster.assignment_id
+    repo.register_cluster_assignment(first_cluster)
+    with pytest.raises(DomainValidationError, match="conflicting"):
+        repo.register_cluster_assignment(second_cluster)
