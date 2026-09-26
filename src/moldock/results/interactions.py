@@ -31,7 +31,7 @@ class PdbqtAtom:
     y: float
     z: float
     atom_type: str
-    charge: float
+    charge: float = 0.0
 
     @property
     def is_hydrogen(self) -> bool:
