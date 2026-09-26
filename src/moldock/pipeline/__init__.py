@@ -1,3 +1,4 @@
+from moldock.run_manifest import RunManifest
 from .offline import (
     OfflineDockingPipeline,
     OfflineDockingSpec,
@@ -5,6 +6,7 @@ from .offline import (
 )
 
 __all__ = [
+    "RunManifest",
     "OfflineDockingPipeline",
     "OfflineDockingSpec",
     "PipelineRunResult",

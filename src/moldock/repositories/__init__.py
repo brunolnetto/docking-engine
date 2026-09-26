@@ -1,3 +1,5 @@
+from .run_manifest import RunManifestRepository
+from .ducklake_run_manifest import DuckLakeRunManifestRepository
 from .prepared_inputs import (
     PreparedInputRepository,
     PreparedLigandBinding,
@@ -11,6 +13,8 @@ from .memory import InMemoryArtifactRepository, InMemoryTaskRepository
 
 __all__ = [
     "ArtifactRepository",
+    "RunManifestRepository",
+    "DuckLakeRunManifestRepository",
     "PreparedInputRepository",
     "PreparedLigandBinding",
     "PreparedReceptorBinding",

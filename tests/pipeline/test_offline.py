@@ -431,3 +431,60 @@ def test_pipeline_runs_toolchain_preflight_before_preparation(tmp_path):
         tasks.close()
         artifacts.close()
         science.close()
+
+
+class RecordingRunManifestRepository:
+    def __init__(self):
+        self.manifests = {}
+
+    def register(self, manifest):
+        self.manifests[manifest.run_id] = manifest
+
+    def get(self, run_id):
+        return self.manifests.get(run_id)
+
+
+class ManifestAwareBackend(VinaLikeBackend):
+    def __init__(self, run_manifests):
+        super().__init__()
+        self._run_manifests = run_manifests
+
+    def execute(self, request):
+        assert self._run_manifests.get("run_1") is not None
+        return super().execute(request)
+
+
+def test_pipeline_persists_run_manifest_before_task_execution(tmp_path):
+    store, prepared, tasks, artifacts, science = make_stack(tmp_path)
+    run_manifests = RecordingRunManifestRepository()
+    pipeline = OfflineDockingPipeline(
+        receptor_preparer=FakeReceptorPreparer(),
+        ligand_preparer=FakeLigandPreparer(),
+        prepared_inputs=prepared,
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=store,
+        backend=ManifestAwareBackend(run_manifests),
+        clock=lambda: T0,
+        run_manifest_repository=run_manifests,
+    )
+
+    try:
+        result = pipeline.run(make_spec())
+        durable = run_manifests.get("run_1")
+
+        assert durable is not None
+        assert durable.to_pipeline_result() == result
+        assert durable.receptor_source_sha256 == make_spec().receptor_request.source_sha256
+        assert durable.ligand_sources == (
+            (
+                "lig_1",
+                make_spec().ligand_requests[0].source_sha256,
+            ),
+        )
+        assert durable.task_ids == result.task_ids
+    finally:
+        prepared.close()
+        tasks.close()
+        artifacts.close()
+        science.close()
