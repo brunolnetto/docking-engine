@@ -90,12 +90,12 @@ class DuckLakeRunManifestRepository(DuckLakeRepositoryBase):
                     toolchain_json VARCHAR,
                     experiment_configuration_json VARCHAR
                 )
+                """
+            )
             self._connection.execute(
                 """
                 ALTER TABLE moldock.run_manifests
                 ADD COLUMN IF NOT EXISTS experiment_configuration_json VARCHAR
-                """
-            )
                 """
             )
 
