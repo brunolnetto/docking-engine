@@ -26,6 +26,7 @@ from moldock.reporting import (
     JsonPipelineReporter,
     MarkdownPipelineReporter,
     PipelineReportBuilder,
+    ReportLabPipelineReporter,
 )
 from moldock.results import (
     DuckLakeScientificResultRepository,
@@ -82,6 +83,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_LIGAND,
         help="single-molecule 3D SDF ligand",
+    )
+    parser.add_argument(
+        "--pdf",
+        action="store_true",
+        help="also write an auditable ReportLab PDF (requires docking-engine[pdf])",
     )
     return parser.parse_args()
 
@@ -219,6 +225,7 @@ def main() -> int:
 
         markdown_path = reports_dir / f"{args.run_id}.md"
         json_path = reports_dir / f"{args.run_id}.json"
+        pdf_path = reports_dir / f"{args.run_id}.pdf"
         markdown_path.write_text(
             MarkdownPipelineReporter().render(report),
             encoding="utf-8",
@@ -227,6 +234,8 @@ def main() -> int:
             JsonPipelineReporter().render(report) + "\n",
             encoding="utf-8",
         )
+        if args.pdf:
+            ReportLabPipelineReporter().write(report, pdf_path)
     finally:
         runs.close()
         science.close()
@@ -236,6 +245,8 @@ def main() -> int:
 
     print(markdown_path)
     print(json_path)
+    if args.pdf:
+        print(pdf_path)
     return 0
 
 
