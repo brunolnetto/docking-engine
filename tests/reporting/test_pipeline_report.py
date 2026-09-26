@@ -23,6 +23,7 @@ from moldock.reporting import (
     MarkdownPipelineReporter,
     PipelineReportBuilder,
     PipelineReporter,
+    ReportLabPipelineReporter,
     TextPipelineReporter,
 )
 from moldock.results import InMemoryScientificResultRepository
@@ -268,3 +269,49 @@ def test_markdown_report_contains_provenance_summary_and_score_table():
     assert manifest.run_manifest_id in markdown
     assert payload["provenance"]["run_manifest_id"] == manifest.run_manifest_id
     assert payload["provenance"]["toolchain"]["vina"]["version"] == "1.2.7"
+
+
+def test_reportlab_pdf_is_deterministic_and_writable(tmp_path):
+    tasks = InMemoryTaskRepository()
+    artifacts = InMemoryArtifactRepository()
+    science = InMemoryScientificResultRepository()
+    task = DockingTask(
+        experiment_id="exp_1",
+        receptor_id="rec_1",
+        ligand_id="lig_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_id="plig_1",
+        search_space_id="space_1",
+    )
+    tasks.register(task)
+    manifest = RunManifest(
+        run_id="run_1",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        task_manifest_id="manifest_1",
+        search_space_id="space_1",
+        receptor_id="rec_1",
+        receptor_source_sha256="a" * 64,
+        ligand_sources=(("lig_1", "b" * 64),),
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        task_ids=(task.task_id,),
+        toolchain_snapshot=toolchain_snapshot(),
+    )
+    report = PipelineReportBuilder(
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        scientific_result_repository=science,
+    ).build_from_manifest(manifest)
+
+    reporter = ReportLabPipelineReporter()
+    first = reporter.render(report)
+    second = reporter.render(report)
+
+    assert first.startswith(b"%PDF-")
+    assert first == second
+    assert len(first) > 1_000
+
+    output = tmp_path / "report.pdf"
+    assert reporter.write(report, output) == output
+    assert output.read_bytes() == first
