@@ -4,10 +4,12 @@ from pathlib import Path
 
 from moldock.domain import (
     DomainValidationError,
+    InteractionKind,
     Pose,
     PoseClusterAssignment,
     PoseMetric,
     PoseMetricKind,
+    PoseInteraction,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -79,6 +81,24 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
                     kind VARCHAR,
                     value DOUBLE,
                     unit VARCHAR,
+                    method VARCHAR,
+                    method_version VARCHAR,
+                    metadata_json VARCHAR
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS moldock.pose_interactions (
+                    interaction_id VARCHAR,
+                    pose_id VARCHAR,
+                    kind VARCHAR,
+                    receptor_residue VARCHAR,
+                    receptor_atom VARCHAR,
+                    ligand_atom VARCHAR,
+                    distance_angstrom DOUBLE,
+                    angle_degrees DOUBLE,
+                    protein_is_donor BOOLEAN,
                     method VARCHAR,
                     method_version VARCHAR,
                     metadata_json VARCHAR
@@ -213,6 +233,41 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
 
         self._run_write(operation)
 
+    def register_interaction(self, interaction: PoseInteraction) -> None:
+        def operation() -> None:
+            self._require_pose(interaction.pose_id, "interaction")
+            rows = self._interaction_rows(interaction.interaction_id)
+            if rows:
+                current = self._interaction_from_row(rows[0])
+                if current != interaction:
+                    raise DomainValidationError(
+                        "interaction identity already exists "
+                        "with conflicting metadata"
+                    )
+                return
+            self._connection.execute(
+                """
+                INSERT INTO moldock.pose_interactions
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    interaction.interaction_id,
+                    interaction.pose_id,
+                    interaction.kind.value,
+                    interaction.receptor_residue,
+                    interaction.receptor_atom,
+                    interaction.ligand_atom,
+                    interaction.distance_angstrom,
+                    interaction.angle_degrees,
+                    interaction.protein_is_donor,
+                    interaction.method,
+                    interaction.method_version,
+                    encode_metadata(interaction.metadata),
+                ],
+            )
+
+        self._run_write(operation)
+
     def register_cluster_assignment(
         self,
         assignment: PoseClusterAssignment,
@@ -330,6 +385,33 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
         ).fetchall()
         return tuple(self._metric_from_row(row) for row in rows)
 
+    def list_interactions_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseInteraction, ...]:
+        rows = self._connection.execute(
+            """
+            SELECT
+                interaction_id,
+                pose_id,
+                kind,
+                receptor_residue,
+                receptor_atom,
+                ligand_atom,
+                distance_angstrom,
+                angle_degrees,
+                protein_is_donor,
+                method,
+                method_version,
+                metadata_json
+            FROM moldock.pose_interactions
+            WHERE pose_id = ?
+            ORDER BY interaction_id
+            """,
+            [pose_id],
+        ).fetchall()
+        return tuple(self._interaction_from_row(row) for row in rows)
+
     def list_cluster_assignments_for_pose(
         self,
         pose_id: str,
@@ -419,6 +501,28 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
             [metric_id],
         ).fetchall()
 
+    def _interaction_rows(self, interaction_id: str):
+        return self._connection.execute(
+            """
+            SELECT
+                interaction_id,
+                pose_id,
+                kind,
+                receptor_residue,
+                receptor_atom,
+                ligand_atom,
+                distance_angstrom,
+                angle_degrees,
+                protein_is_donor,
+                method,
+                method_version,
+                metadata_json
+            FROM moldock.pose_interactions
+            WHERE interaction_id = ?
+            """,
+            [interaction_id],
+        ).fetchall()
+
     def _cluster_rows(self, assignment_id: str):
         return self._connection.execute(
             """
@@ -475,6 +579,22 @@ class DuckLakeScientificResultRepository(DuckLakeRepositoryBase):
             method=row[5],
             method_version=row[6],
             metadata=decode_metadata(row[7]),
+        )
+
+    @staticmethod
+    def _interaction_from_row(row) -> PoseInteraction:
+        return PoseInteraction(
+            pose_id=row[1],
+            kind=InteractionKind(row[2]),
+            receptor_residue=row[3],
+            receptor_atom=row[4],
+            ligand_atom=row[5],
+            distance_angstrom=row[6],
+            angle_degrees=row[7],
+            protein_is_donor=row[8],
+            method=row[9],
+            method_version=row[10],
+            metadata=decode_metadata(row[11]),
         )
 
     @staticmethod
