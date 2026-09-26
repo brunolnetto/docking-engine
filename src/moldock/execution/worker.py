@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import AbstractSet
 from datetime import datetime, timedelta
 
 from moldock.backends import DockingBackend
@@ -58,5 +59,12 @@ class Worker:
         experiment_id: str,
         run_id: str,
         worker_id: str,
+        *,
+        allowed_task_ids: AbstractSet[str] | None = None,
     ) -> TaskAttempt | None:
-        return self._runner.run_once(experiment_id, run_id, worker_id)
+        return self._runner.run_once(
+            experiment_id,
+            run_id,
+            worker_id,
+            allowed_task_ids=allowed_task_ids,
+        )

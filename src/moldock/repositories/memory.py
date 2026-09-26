@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timedelta
 from threading import RLock
+from typing import AbstractSet
 
 from moldock.domain import (
     ArtifactMetadata,
@@ -68,6 +69,7 @@ class InMemoryTaskRepository:
         at: datetime,
         *,
         lease_duration: timedelta | None = None,
+        allowed_task_ids: AbstractSet[str] | None = None,
     ) -> TaskAttempt | None:
         if not run_id.strip():
             raise DomainValidationError("run_id must not be blank")
@@ -81,8 +83,16 @@ class InMemoryTaskRepository:
         if duration <= timedelta(0):
             raise DomainValidationError("lease_duration must be > 0")
 
+        allowed = (
+            None
+            if allowed_task_ids is None
+            else frozenset(allowed_task_ids)
+        )
+
         with self._lock:
             for task in self.list_for_experiment(experiment_id):
+                if allowed is not None and task.task_id not in allowed:
+                    continue
                 history = self.attempts_for(task.task_id, run_id)
 
                 if history and history[-1].status is TaskStatus.RUNNING:

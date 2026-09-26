@@ -206,10 +206,14 @@ class OfflineDockingPipeline:
             clock=self._clock,
         )
 
+        manifest_task_ids = frozenset(
+            task.task_id for task in manifest.tasks
+        )
         while worker.run_once(
             experiment.experiment_id,
             spec.run_id,
             spec.worker_id,
+            allowed_task_ids=manifest_task_ids,
         ) is not None:
             pass
 
