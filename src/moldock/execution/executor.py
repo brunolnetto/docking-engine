@@ -94,10 +94,21 @@ class TaskExecutor:
                 raise _wrap_failure(FailureKind.ARTIFACT, exc) from exc
 
             try:
-                self._interpreter.interpret(
-                    task_id=task.task_id,
-                    artifact=artifact,
-                    request=request,
+                contextual = getattr(
+                    self._interpreter,
+                    "interpret_with_request",
+                    None,
                 )
+                if callable(contextual):
+                    contextual(
+                        task_id=task.task_id,
+                        artifact=artifact,
+                        request=request,
+                    )
+                else:
+                    self._interpreter.interpret(
+                        task_id=task.task_id,
+                        artifact=artifact,
+                    )
             except Exception as exc:
                 raise _wrap_failure(FailureKind.INTERPRETATION, exc) from exc
