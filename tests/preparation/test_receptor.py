@@ -160,3 +160,41 @@ class FakeReceptorPreparer:
 
 def test_receptor_preparer_is_runtime_checkable_port():
     assert isinstance(FakeReceptorPreparer(), ReceptorPreparer)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: make_protocol(method_version=" "),
+        lambda: ReceptorPreparationRequest(
+            receptor_id="rec_1",
+            source_format="pdb",
+            content=b"x",
+            protocol=object(),
+        ),
+        lambda: ReceptorPreparationArtifact(
+            receptor_id=" ",
+            preparation_id="rprep_1",
+            model_id="model_1",
+            chain_ids=("A",),
+            pdbqt=b"x",
+        ),
+        lambda: ReceptorPreparationArtifact(
+            receptor_id="rec_1",
+            preparation_id=" ",
+            model_id="model_1",
+            chain_ids=("A",),
+            pdbqt=b"x",
+        ),
+        lambda: ReceptorPreparationArtifact(
+            receptor_id="rec_1",
+            preparation_id="rprep_1",
+            model_id="model_1",
+            chain_ids=("A",),
+            pdbqt="not-bytes",
+        ),
+    ],
+)
+def test_receptor_preparation_covers_remaining_validation_boundaries(factory):
+    with pytest.raises(DomainValidationError):
+        factory()
