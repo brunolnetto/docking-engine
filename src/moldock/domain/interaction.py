@@ -12,6 +12,7 @@ class PoseInteractionKind(str, Enum):
     CONTACT = "contact"
     HYDROPHOBIC_CONTACT = "hydrophobic_contact"
     HYDROGEN_BOND = "hydrogen_bond"
+    SALT_BRIDGE = "salt_bridge"
 
 
 @dataclass(frozen=True, slots=True)

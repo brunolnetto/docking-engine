@@ -22,12 +22,13 @@ def atom(
     y: float,
     z: float,
     atom_type: str,
+    charge: float = 0.0,
 ) -> bytes:
     return (
         f"ATOM  {serial:5d} {name:>4s} {residue:>3s} {chain:1s}"
         f"{residue_number:4d}    "
         f"{x:8.3f}{y:8.3f}{z:8.3f}"
-        f"  1.00  0.00    +0.000 {atom_type}\n"
+        f"  1.00  0.00    {charge:+0.3f} {atom_type}\n"
     ).encode()
 
 
@@ -390,3 +391,108 @@ def test_nearest_heavy_atom_returns_none_when_no_candidate_is_close():
     )
 
     assert analyzer._nearest_heavy_atom(hydrogen, (heavy,)) is None
+
+
+
+def test_putative_salt_bridge_is_persisted_for_opposite_charge_heuristics():
+    repo = InMemoryScientificResultRepository()
+    persisted = pose()
+    repo.register_pose(persisted)
+    receptor_charged = atom(
+        1, "NZ", "LYS", "A", 42, 0.0, 0.0, 0.0, "N", charge=0.0
+    )
+    ligand_charged = (
+        b"MODEL 1\n"
+        + atom(
+            1, "O1", "LIG", "L", 1, 3.0, 0.0, 0.0, "OA", charge=-0.60
+        )
+        + b"ENDMDL\n"
+    )
+
+    PoseInteractionAnalyzer(repository=repo).analyze(
+        attempt_id="attempt_1",
+        receptor_pdbqt=receptor_charged,
+        pose_pdbqt=ligand_charged,
+    )
+
+    salt_bridges = [
+        item
+        for item in repo.list_interactions_for_pose(persisted.pose_id)
+        if item.kind is PoseInteractionKind.SALT_BRIDGE
+    ]
+    assert len(salt_bridges) == 1
+    assert salt_bridges[0].residue_label == "A:LYS42"
+    assert salt_bridges[0].metadata["putative"] is True
+    assert salt_bridges[0].metadata["ligand_partial_charge"] == pytest.approx(-0.60)
+
+
+def test_putative_salt_bridge_rejects_same_sign_and_distance_outside_cutoff():
+    analyzer = PoseInteractionAnalyzer(
+        repository=InMemoryScientificResultRepository()
+    )
+    positive_ligand = PdbqtAtom(
+        serial=1,
+        name="N1",
+        residue_name="LIG",
+        chain="L",
+        residue_number="1",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="N",
+        charge=0.40,
+    )
+    negative_ligand = PdbqtAtom(
+        serial=2,
+        name="O1",
+        residue_name="LIG",
+        chain="L",
+        residue_number="1",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="OA",
+        charge=-0.60,
+    )
+    neutral_ligand = PdbqtAtom(
+        serial=3,
+        name="C1",
+        residue_name="LIG",
+        chain="L",
+        residue_number="1",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="C",
+        charge=0.0,
+    )
+
+    assert analyzer._ligand_charge_sign(positive_ligand) == 1
+    assert analyzer._ligand_charge_sign(negative_ligand) == -1
+    assert analyzer._ligand_charge_sign(neutral_ligand) is None
+
+
+@pytest.mark.parametrize(
+    ("residue", "name", "expected"),
+    [
+        ("LYS", "NZ", 1),
+        ("ARG", "NH1", 1),
+        ("ASP", "OD1", -1),
+        ("GLU", "OE2", -1),
+        ("ALA", "CB", None),
+    ],
+)
+def test_protein_charge_sign_heuristic(residue, name, expected):
+    atom_value = PdbqtAtom(
+        serial=1,
+        name=name,
+        residue_name=residue,
+        chain="A",
+        residue_number="1",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="C",
+    )
+
+    assert PoseInteractionAnalyzer._protein_charge_sign(atom_value) == expected

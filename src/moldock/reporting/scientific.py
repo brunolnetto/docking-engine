@@ -25,9 +25,11 @@ class ScientificPoseResult:
     contact_count: int = 0
     hydrophobic_contact_count: int = 0
     hydrogen_bond_count: int = 0
+    salt_bridge_count: int = 0
     contact_residues: tuple[str, ...] = ()
     hydrophobic_residues: tuple[str, ...] = ()
     hydrogen_bond_residues: tuple[str, ...] = ()
+    salt_bridge_residues: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +175,10 @@ class ScientificReportBuilder:
                     item for item in interactions
                     if item.kind == "hydrogen_bond"
                 ]
+                salt_bridges = [
+                    item for item in interactions
+                    if item.kind == "salt_bridge"
+                ]
                 rows.append(
                     ScientificPoseResult(
                         ligand_id=task.ligand_id,
@@ -192,6 +198,7 @@ class ScientificReportBuilder:
                         contact_count=len(contacts),
                         hydrophobic_contact_count=len(hydrophobic),
                         hydrogen_bond_count=len(hydrogen_bonds),
+                        salt_bridge_count=len(salt_bridges),
                         contact_residues=tuple(
                             sorted({item.residue_label for item in contacts})
                         ),
@@ -208,6 +215,14 @@ class ScientificReportBuilder:
                                 {
                                     item.residue_label
                                     for item in hydrogen_bonds
+                                }
+                            )
+                        ),
+                        salt_bridge_residues=tuple(
+                            sorted(
+                                {
+                                    item.residue_label
+                                    for item in salt_bridges
                                 }
                             )
                         ),
@@ -576,6 +591,7 @@ class ScientificReportBuilder:
                     pose.contact_count
                     or pose.hydrophobic_contact_count
                     or pose.hydrogen_bond_count
+                    or pose.salt_bridge_count
                 )
             ]
             if interaction_poses:
@@ -592,7 +608,8 @@ class ScientificReportBuilder:
                     f"contact(s), {top.hydrophobic_contact_count} "
                     f"hydrophobic contact(s), and "
                     f"{top.hydrogen_bond_count} geometry-qualified hydrogen "
-                    "bond(s)."
+                    f"bond(s), and {top.salt_bridge_count} putative salt "
+                    "bridge(s)."
                 )
                 if top.hydrogen_bond_residues:
                     interpretation.append(
@@ -606,17 +623,29 @@ class ScientificReportBuilder:
                         + ", ".join(top.hydrophobic_residues)
                         + "."
                     )
+                if top.salt_bridge_residues:
+                    interpretation.append(
+                        "Rank-1 putative salt-bridge residues: "
+                        + ", ".join(top.salt_bridge_residues)
+                        + "."
+                    )
                 limitations.append(
                     "Interaction assignments use deterministic PDBQT geometry "
                     "and AutoDock atom types; they are not a substitute for "
                     "a full chemistry-perception package or experimental "
                     "interaction evidence."
                 )
+                limitations.append(
+                    "Salt bridges are putative: protein charge is inferred "
+                    "from canonical charged side-chain atoms and ligand charge "
+                    "from PDBQT partial-charge thresholds, not a formal-charge "
+                    "chemistry model."
+                )
                 next_steps.extend(
                     [
                         "Compare interaction fingerprints across the leading RMSD cluster.",
-                        "Inspect whether rank-1 hydrogen bonds and hydrophobic contacts are chemically plausible in 3D.",
-                        "Add salt-bridge and aromatic interaction perception as separate typed interaction families.",
+                        "Inspect whether rank-1 hydrogen bonds, hydrophobic contacts, and putative salt bridges are chemically plausible in 3D.",
+                        "Add aromatic interaction perception as a separate typed interaction family.",
                     ]
                 )
             else:

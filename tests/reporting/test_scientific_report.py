@@ -723,3 +723,60 @@ def test_scientific_report_describes_single_interaction_family(
 
     assert expected in narrative
     assert unexpected not in narrative
+
+
+
+def test_scientific_report_surfaces_putative_salt_bridge_without_overclaiming():
+    score, ranking = _score("pose_salt", -9.0, 1)
+    salt_bridge = InteractionObservation(
+        interaction_id="salt_1",
+        pose_id="pose_salt",
+        kind="salt_bridge",
+        receptor_atom_serial=42,
+        receptor_atom_name="NZ",
+        receptor_residue_name="LYS",
+        receptor_chain="A",
+        receptor_residue_number="42",
+        ligand_atom_serial=7,
+        ligand_atom_name="O1",
+        distance_angstrom=3.2,
+        method="pdbqt_geometric_interactions",
+        method_version="1",
+    )
+    task = TaskPipelineReport(
+        task_id="task_salt",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_salt",),
+        scores=(score,),
+        rankings=(ranking,),
+        interactions=(salt_bridge,),
+    )
+    source = PipelineReport(
+        run_id="run_salt",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        tasks=(task,),
+        receptor_id="rec",
+    )
+
+    report = ScientificReportBuilder().build(source)
+
+    assert report.poses[0].salt_bridge_count == 1
+    assert report.poses[0].salt_bridge_residues == ("A:LYS42",)
+    assert any(
+        "putative salt bridge" in item
+        for item in report.narrative.interpretation
+    )
+    assert any(
+        "PDBQT partial-charge thresholds" in item
+        for item in report.narrative.limitations
+    )
