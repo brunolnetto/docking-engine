@@ -516,18 +516,29 @@ class ReportLabPipelineReporter:
             )
 
         if scientific.poses:
+            ranked_values = {
+                pose.rank: pose.score_value
+                for pose in scientific.poses
+                if pose.rank is not None
+            }
+            rank_one = ranked_values.get(1)
             score_rows = [
-                ["Rank", "Ligand", "Score", "Unit", "Method", "Pose"]
+                ["Rank", "Ligand", "Score", "Δ vs rank 1", "Unit", "Method"]
             ]
             for pose in scientific.poses:
+                delta = (
+                    ""
+                    if rank_one is None or pose.rank is None
+                    else _score_value(pose.score_value - rank_one)
+                )
                 score_rows.append(
                     [
                         pose.rank if pose.rank is not None else "—",
                         pose.ligand_id,
                         _score_value(pose.score_value),
+                        delta,
                         pose.score_unit or "",
                         f"{pose.method} {pose.method_version}",
-                        pose.pose_id,
                     ]
                 )
             story.extend(
@@ -535,9 +546,8 @@ class ReportLabPipelineReporter:
                     paragraph("Pose-level results", "DockingH2"),
                     striped_table(
                         score_rows,
-                        [14 * mm, 24 * mm, 25 * mm, 21 * mm, 35 * mm, 55 * mm],
-                        mono_columns=(5,),
-                        right_columns=(0, 2),
+                        [14 * mm, 24 * mm, 28 * mm, 31 * mm, 25 * mm, 52 * mm],
+                        right_columns=(0, 2, 3),
                     ),
                 ]
             )
@@ -546,6 +556,8 @@ class ReportLabPipelineReporter:
             [
                 paragraph("Interpretation", "DockingH2"),
                 bullets(scientific.narrative.interpretation),
+                paragraph("Conclusion", "DockingH2"),
+                paragraph(scientific.narrative.conclusion, "DockingCallout"),
                 paragraph("What this result does not establish", "DockingH2"),
                 bullets(scientific.narrative.limitations),
                 paragraph("Recommended next analyses", "DockingH2"),
@@ -612,6 +624,29 @@ class ReportLabPipelineReporter:
                         ],
                         [36 * mm, 22 * mm, 116 * mm],
                         mono_columns=(2,),
+                    ),
+                ]
+            )
+
+        pose_trace_rows = [["Ligand", "Rank", "Pose ID", "Score family"]]
+        for pose in scientific.poses:
+            pose_trace_rows.append(
+                [
+                    pose.ligand_id,
+                    pose.rank if pose.rank is not None else "—",
+                    pose.pose_id,
+                    f"{pose.method}/{pose.score_kind}",
+                ]
+            )
+        if len(pose_trace_rows) > 1:
+            story.extend(
+                [
+                    paragraph("Pose traceability", "DockingH2"),
+                    striped_table(
+                        pose_trace_rows,
+                        [25 * mm, 16 * mm, 88 * mm, 45 * mm],
+                        mono_columns=(2,),
+                        right_columns=(1,),
                     ),
                 ]
             )
