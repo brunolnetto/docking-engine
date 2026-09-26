@@ -1,5 +1,6 @@
 from .analysis import PoseClusterAssignment, PoseMetric, PoseMetricKind
 from .artifact import ArtifactMetadata
+from .interaction import PoseInteraction, PoseInteractionKind
 from .artifact_blob import StoredBlob
 from .common import DomainValidationError, content_id
 from .execution import DockingOutputArtifact, DockingResult
@@ -34,6 +35,8 @@ __all__ = [
     "ExecutionFailure",
     "RetryPolicy",
     "Pose",
+    "PoseInteraction",
+    "PoseInteractionKind",
     "PoseMetric",
     "PoseMetricKind",
     "PoseClusterAssignment",
