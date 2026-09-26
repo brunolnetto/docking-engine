@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from moldock.domain import DomainValidationError, TaskStatus
-from moldock.pipeline import PipelineRunResult
-from moldock.repositories import ArtifactRepository, TaskRepository
+from moldock.pipeline import PipelineRunResult, RunManifest
+from moldock.repositories import (
+    ArtifactRepository,
+    RunManifestRepository,
+    TaskRepository,
+)
 from moldock.results import ScientificResultRepository
 
 from .model import (
@@ -26,6 +30,36 @@ class PipelineReportBuilder:
         self._science = scientific_result_repository
 
     def build(self, result: PipelineRunResult) -> PipelineReport:
+        return self._build(result, manifest=None)
+
+    def build_from_manifest(
+        self,
+        manifest: RunManifest,
+    ) -> PipelineReport:
+        return self._build(
+            manifest.to_pipeline_result(),
+            manifest=manifest,
+        )
+
+    def build_for_run(
+        self,
+        run_id: str,
+        *,
+        run_manifest_repository: RunManifestRepository,
+    ) -> PipelineReport:
+        manifest = run_manifest_repository.get(run_id)
+        if manifest is None:
+            raise DomainValidationError(
+                f"run manifest not found: {run_id}"
+            )
+        return self.build_from_manifest(manifest)
+
+    def _build(
+        self,
+        result: PipelineRunResult,
+        *,
+        manifest: RunManifest | None,
+    ) -> PipelineReport:
         task_reports = tuple(
             self._build_task(result, task_id)
             for task_id in result.task_ids
@@ -38,6 +72,36 @@ class PipelineReportBuilder:
             prepared_receptor_id=result.prepared_receptor_id,
             prepared_ligand_ids=result.prepared_ligand_ids,
             tasks=task_reports,
+            run_manifest_id=(
+                manifest.run_manifest_id
+                if manifest is not None
+                else None
+            ),
+            search_space_id=(
+                manifest.search_space_id
+                if manifest is not None
+                else None
+            ),
+            receptor_id=(
+                manifest.receptor_id
+                if manifest is not None
+                else None
+            ),
+            receptor_source_sha256=(
+                manifest.receptor_source_sha256
+                if manifest is not None
+                else None
+            ),
+            ligand_sources=(
+                manifest.ligand_sources
+                if manifest is not None
+                else ()
+            ),
+            toolchain_snapshot=(
+                manifest.toolchain_snapshot
+                if manifest is not None
+                else result.toolchain_snapshot
+            ),
         )
 
     def _build_task(
