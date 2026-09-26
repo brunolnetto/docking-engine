@@ -1,6 +1,7 @@
 from .builder import PipelineReportBuilder
 from .model import (
     ClusterObservation,
+    InteractionObservation,
     MetricObservation,
     PipelineReport,
     RankingObservation,
@@ -26,6 +27,7 @@ __all__ = [
     "MarkdownPipelineReporter",
     "MetricObservation",
     "ClusterObservation",
+    "InteractionObservation",
     "PipelineReport",
     "PipelineReportBuilder",
     "PipelineReporter",
