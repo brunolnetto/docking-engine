@@ -241,3 +241,152 @@ def test_interaction_analyzer_rejects_invalid_angle_cutoff():
             repository=InMemoryScientificResultRepository(),
             hydrogen_bond_angle_degrees=181,
         )
+
+
+from moldock.results.interactions import (
+    PdbqtAtom,
+    _angle_degrees,
+)
+
+
+
+def test_interaction_parser_rejects_nested_model_start():
+    content = (
+        b"MODEL 1\n"
+        + atom(1, "C1", "LIG", "L", 1, 0.0, 0.0, 0.0, "C")
+        + b"MODEL 2\n"
+    )
+
+    with pytest.raises(DomainValidationError, match="unterminated MODEL 1"):
+        PdbqtInteractionParser().parse_models(content)
+
+
+def test_interaction_parser_ignores_stray_endmdl_before_valid_model():
+    content = (
+        b"ENDMDL\n"
+        b"MODEL 1\n"
+        + atom(1, "C1", "LIG", "L", 1, 0.0, 0.0, 0.0, "C")
+        + b"ENDMDL\n"
+    )
+
+    models = PdbqtInteractionParser().parse_models(content)
+
+    assert tuple(models) == (1,)
+
+
+def test_interaction_angle_rejects_coincident_atom_geometry():
+    first = PdbqtAtom(
+        serial=1,
+        name="N",
+        residue_name="LYS",
+        chain="A",
+        residue_number="10",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="N",
+    )
+    vertex = PdbqtAtom(
+        serial=2,
+        name="H",
+        residue_name="LYS",
+        chain="A",
+        residue_number="10",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="HD",
+    )
+    last = PdbqtAtom(
+        serial=3,
+        name="O",
+        residue_name="LIG",
+        chain="L",
+        residue_number="1",
+        x=1.0,
+        y=0.0,
+        z=0.0,
+        atom_type="OA",
+    )
+
+    with pytest.raises(DomainValidationError, match="coincident atoms"):
+        _angle_degrees(first, vertex, last)
+
+
+def test_hydrogen_bond_skips_polar_hydrogen_without_nearby_donor():
+    repo = InMemoryScientificResultRepository()
+    persisted = pose()
+    repo.register_pose(persisted)
+    receptor_without_donor = atom(
+        1, "H", "LYS", "A", 10, 0.0, 0.0, 0.0, "HD"
+    )
+    acceptor = (
+        b"MODEL 1\n"
+        + atom(1, "O1", "LIG", "L", 1, 1.5, 0.0, 0.0, "OA")
+        + b"ENDMDL\n"
+    )
+
+    PoseInteractionAnalyzer(repository=repo).analyze(
+        attempt_id="attempt_1",
+        receptor_pdbqt=receptor_without_donor,
+        pose_pdbqt=acceptor,
+    )
+
+    assert not [
+        item
+        for item in repo.list_interactions_for_pose(persisted.pose_id)
+        if item.kind is PoseInteractionKind.HYDROGEN_BOND
+    ]
+
+
+def test_hydrogen_bond_skips_acceptor_outside_distance_cutoffs():
+    repo = InMemoryScientificResultRepository()
+    persisted = pose()
+    repo.register_pose(persisted)
+    far_acceptor = (
+        b"MODEL 1\n"
+        + atom(1, "O1", "LIG", "L", 1, 6.0, 0.0, 0.0, "OA")
+        + b"ENDMDL\n"
+    )
+
+    PoseInteractionAnalyzer(repository=repo).analyze(
+        attempt_id="attempt_1",
+        receptor_pdbqt=receptor(),
+        pose_pdbqt=far_acceptor,
+    )
+
+    assert not [
+        item
+        for item in repo.list_interactions_for_pose(persisted.pose_id)
+        if item.kind is PoseInteractionKind.HYDROGEN_BOND
+    ]
+
+
+def test_nearest_heavy_atom_returns_none_when_no_candidate_is_close():
+    analyzer = PoseInteractionAnalyzer(
+        repository=InMemoryScientificResultRepository(),
+    )
+    hydrogen = PdbqtAtom(
+        serial=1,
+        name="H",
+        residue_name="LIG",
+        chain="L",
+        residue_number="1",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        atom_type="HD",
+    )
+    heavy = PdbqtAtom(
+        serial=2,
+        name="N",
+        residue_name="LIG",
+        chain="L",
+        residue_number="1",
+        x=3.0,
+        y=0.0,
+        z=0.0,
+        atom_type="N",
+    )
+
+    assert analyzer._nearest_heavy_atom(hydrogen, (heavy,)) is None
