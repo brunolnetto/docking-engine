@@ -46,6 +46,21 @@ class ClusterObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionObservation:
+    interaction_id: str
+    pose_id: str
+    kind: str
+    receptor_residue: str
+    receptor_atom: str
+    ligand_atom: str
+    distance_angstrom: float
+    angle_degrees: float | None
+    protein_is_donor: bool | None
+    method: str
+    method_version: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskPipelineReport:
     task_id: str
     ligand_id: str
@@ -60,6 +75,7 @@ class TaskPipelineReport:
     rankings: tuple[RankingObservation, ...]
     metrics: tuple[MetricObservation, ...] = ()
     clusters: tuple[ClusterObservation, ...] = ()
+    interactions: tuple[InteractionObservation, ...] = ()
 
     @property
     def artifact_count(self) -> int:
