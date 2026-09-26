@@ -32,6 +32,9 @@ rustfs = [
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q --strict-config --strict-markers"
+markers = [
+    "real_e2e: requires local Meeko 0.8.x and AutoDock Vina 1.2.7 executables",
+]
 
 [tool.coverage.run]
 branch = true
