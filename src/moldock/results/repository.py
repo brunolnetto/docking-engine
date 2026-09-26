@@ -22,25 +22,6 @@ class ScientificResultRepository(Protocol):
     def register_ranking(self, ranking: PoseRanking) -> None: ...
     def register_metric(self, metric: PoseMetric) -> None: ...
     def register_interaction(self, interaction: PoseInteraction) -> None: ...
-    def register_interaction(self, interaction: PoseInteraction) -> None:
-        with self._lock:
-            if interaction.pose_id not in self._poses:
-                raise DomainValidationError(
-                    "cannot register interaction for unknown pose: "
-                    f"{interaction.pose_id}"
-                )
-            existing = self._interactions.get(interaction.interaction_id)
-            if existing is None:
-                self._interactions[interaction.interaction_id] = interaction
-                self._interaction_ids_by_pose[interaction.pose_id].append(
-                    interaction.interaction_id
-                )
-                return
-            if existing != interaction:
-                raise DomainValidationError(
-                    "interaction identity already exists with conflicting metadata"
-                )
-
     def register_cluster_assignment(
         self,
         assignment: PoseClusterAssignment,
@@ -53,18 +34,6 @@ class ScientificResultRepository(Protocol):
         self,
         pose_id: str,
     ) -> tuple[PoseInteraction, ...]: ...
-    def list_interactions_for_pose(
-        self,
-        pose_id: str,
-    ) -> tuple[PoseInteraction, ...]:
-        with self._lock:
-            return tuple(
-                self._interactions[interaction_id]
-                for interaction_id in sorted(
-                    self._interaction_ids_by_pose.get(pose_id, ())
-                )
-            )
-
     def list_cluster_assignments_for_pose(
         self,
         pose_id: str,
@@ -149,6 +118,25 @@ class InMemoryScientificResultRepository:
                     "metric identity already exists with conflicting metadata"
                 )
 
+    def register_interaction(self, interaction: PoseInteraction) -> None:
+        with self._lock:
+            if interaction.pose_id not in self._poses:
+                raise DomainValidationError(
+                    "cannot register interaction for unknown pose: "
+                    f"{interaction.pose_id}"
+                )
+            existing = self._interactions.get(interaction.interaction_id)
+            if existing is None:
+                self._interactions[interaction.interaction_id] = interaction
+                self._interaction_ids_by_pose[interaction.pose_id].append(
+                    interaction.interaction_id
+                )
+                return
+            if existing != interaction:
+                raise DomainValidationError(
+                    "interaction identity already exists with conflicting metadata"
+                )
+
     def register_cluster_assignment(
         self,
         assignment: PoseClusterAssignment,
@@ -202,6 +190,18 @@ class InMemoryScientificResultRepository:
                 self._metrics[metric_id]
                 for metric_id in sorted(
                     self._metric_ids_by_pose.get(pose_id, ())
+                )
+            )
+
+    def list_interactions_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseInteraction, ...]:
+        with self._lock:
+            return tuple(
+                self._interactions[interaction_id]
+                for interaction_id in sorted(
+                    self._interaction_ids_by_pose.get(pose_id, ())
                 )
             )
 
