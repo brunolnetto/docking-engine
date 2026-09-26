@@ -80,3 +80,15 @@ def test_real_meeko_vina_pipeline_generates_restart_safe_report(tmp_path):
     second_payload = json.loads(json_path.read_text())
     assert second_payload == first_payload
     assert second_payload["attempt_count"] == 1
+
+
+def test_vendored_receptor_keeps_ser438_atom_order():
+    receptor = (
+        ROOT / "examples" / "fixtures" / "1iep_receptorH.pdb"
+    ).read_text()
+    atom_3428 = receptor.index("ATOM   3428")
+    atom_3429 = receptor.index("ATOM   3429")
+    atom_3430 = receptor.index("ATOM   3430")
+
+    assert atom_3428 < atom_3429 < atom_3430
+    assert receptor.count("ATOM   3429") == 1
