@@ -12,6 +12,7 @@ from .model import PipelineReport
 class ScientificPoseResult:
     ligand_id: str
     pose_id: str
+    attempt_id: str | None
     rank: int | None
     score_kind: str
     score_value: float
@@ -45,9 +46,13 @@ class ResidueSupport:
 class PoseEvidenceSummary:
     ligand_id: str
     pose_id: str
+    attempt_id: str | None
     rank: int | None
+    score_kind: str
     score_value: float
     score_unit: str | None
+    method: str
+    method_version: str
     delta_to_rank1: float | None
     rmsd_to_rank1: float | None
     cluster_id: str | None
@@ -145,6 +150,13 @@ class ScientificReportBuilder:
                     [],
                 ).append(interaction)
             for score in task.scores:
+                if (
+                    task.status is TaskStatus.SUCCEEDED
+                    and task.final_attempt_id is not None
+                    and score.attempt_id is not None
+                    and score.attempt_id != task.final_attempt_id
+                ):
+                    continue
                 if not isfinite(score.value):
                     continue
                 pose_metrics = metrics_by_pose.get(score.pose_id, {})
@@ -165,6 +177,7 @@ class ScientificReportBuilder:
                     ScientificPoseResult(
                         ligand_id=task.ligand_id,
                         pose_id=score.pose_id,
+                        attempt_id=score.attempt_id,
                         rank=rankings.get((score.pose_id, score.kind)),
                         score_kind=score.kind,
                         score_value=score.value,
@@ -221,14 +234,16 @@ class ScientificReportBuilder:
         poses: tuple[ScientificPoseResult, ...],
     ) -> tuple[PoseEvidenceSummary, ...]:
         by_family: dict[
-            tuple[str, str, str, str | None],
+            tuple[str, str | None, str, str, str, str | None],
             list[ScientificPoseResult],
         ] = {}
         for pose in poses:
             by_family.setdefault(
                 (
                     pose.ligand_id,
+                    pose.attempt_id,
                     pose.method,
+                    pose.method_version,
                     pose.score_kind,
                     pose.score_unit,
                 ),
@@ -276,9 +291,13 @@ class ScientificReportBuilder:
                     PoseEvidenceSummary(
                         ligand_id=pose.ligand_id,
                         pose_id=pose.pose_id,
+                        attempt_id=pose.attempt_id,
                         rank=pose.rank,
+                        score_kind=pose.score_kind,
                         score_value=pose.score_value,
                         score_unit=pose.score_unit,
+                        method=pose.method,
+                        method_version=pose.method_version,
                         delta_to_rank1=(
                             None
                             if rank_one is None
@@ -300,6 +319,11 @@ class ScientificReportBuilder:
                 evidence,
                 key=lambda item: (
                     item.ligand_id,
+                    item.method,
+                    item.method_version,
+                    item.score_kind,
+                    item.score_unit or "",
+                    item.attempt_id or "",
                     item.rank is None,
                     item.rank if item.rank is not None else 10**9,
                     item.pose_id,
@@ -399,16 +423,23 @@ class ScientificReportBuilder:
         next_steps: list[str] = []
 
         groups: dict[
-            tuple[str, str, str | None],
+            tuple[str, str, str, str | None],
             list[ScientificPoseResult],
         ] = {}
         for pose in poses:
             groups.setdefault(
-                (pose.method, pose.score_kind, pose.score_unit),
+                (
+                    pose.method,
+                    pose.method_version,
+                    pose.score_kind,
+                    pose.score_unit,
+                ),
                 [],
             ).append(pose)
 
-        for (method, kind, unit), group in sorted(groups.items()):
+        for (method, method_version, kind, unit), group in sorted(
+            groups.items()
+        ):
             ranked = sorted(
                 (pose for pose in group if pose.rank is not None),
                 key=lambda pose: pose.rank or 10**9,
@@ -443,12 +474,13 @@ class ScientificReportBuilder:
             elif ranked:
                 interpretation.append(
                     f"{len(ranked)} ranked pose(s) were persisted for "
-                    f"{method}/{kind}; no cross-method ordering was inferred."
+                    f"{method}@{method_version}/{kind}; no cross-method "
+                    "or cross-version ordering was inferred."
                 )
                 conclusion = (
-                    f"The {method}/{kind} results support prioritization only "
-                    "within that score family; no cross-method conclusion was "
-                    "derived."
+                    f"The {method}@{method_version}/{kind} results support "
+                    "prioritization only within that score family; no "
+                    "cross-method or cross-version conclusion was derived."
                 )
 
         if not interpretation:
