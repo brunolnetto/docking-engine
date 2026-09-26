@@ -1,3 +1,4 @@
+from io import BytesIO
 import json
 
 import pytest
@@ -315,3 +316,7 @@ def test_reportlab_pdf_is_deterministic_and_writable(tmp_path):
     output = tmp_path / "report.pdf"
     assert reporter.write(report, output) == output
     assert output.read_bytes() == first
+
+    stream = BytesIO()
+    assert reporter.write(report, stream) is stream
+    assert stream.getvalue() == first
