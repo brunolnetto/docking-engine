@@ -291,6 +291,19 @@ class ScientificReportBuilder:
                         "pose(s), providing a direct view of pose convergence "
                         "around the scoring-function preferred solution."
                     )
+                    peer_count = max(0, rank1_cluster_size - 1)
+                    if peer_count:
+                        conclusion += (
+                            f" Structurally, rank 1 shares its 2.0 Å RMSD "
+                            f"cluster with {peer_count} additional pose(s)."
+                        )
+                    if len(clusters) > 1:
+                        conclusion += (
+                            f" The {len(analyzed)} analyzed poses span "
+                            f"{len(clusters)} clusters at this threshold, "
+                            "so the generated modes retain substantial "
+                            "structural diversity."
+                        )
                 limitations.append(
                     "RMSD v1 is a heavy-atom, atom-order, direct coordinate "
                     "RMSD in the receptor frame; it is not symmetry-corrected "
