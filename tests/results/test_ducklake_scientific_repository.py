@@ -1,5 +1,6 @@
 import pytest
 
+import moldock.domain.analysis as analysis_module
 import moldock.domain.interaction as interaction_module
 import moldock.domain.result as result_module
 from moldock.domain import (
