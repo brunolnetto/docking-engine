@@ -38,6 +38,12 @@ def test_interpreter_reads_raw_artifact_and_persists_scientific_records():
     scores = repository.list_scores_for_pose(poses[0].pose_id)
     assert scores[0].value == -8.4
     assert repository.list_rankings_for_pose(poses[0].pose_id)[0].rank == 1
+    metrics = repository.list_metrics_for_pose(poses[0].pose_id)
+    assert {metric.kind.value for metric in metrics} == {
+        "rmsd_to_rank1",
+        "ligand_efficiency",
+    }
+    assert repository.list_cluster_assignments_for_pose(poses[0].pose_id)
 
 
 def test_interpreter_ignores_non_pose_artifacts():
