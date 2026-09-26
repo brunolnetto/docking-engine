@@ -109,7 +109,13 @@ class VinaResultInterpreter:
             attempt_id=artifact.producer_attempt_id,
             content=content,
         )
-        if request is not None:
+        if (
+            request is not None
+            and (
+                b"ATOM" in request.receptor_pdbqt
+                or b"HETATM" in request.receptor_pdbqt
+            )
+        ):
             self._interaction_analyzer.analyze(
                 attempt_id=artifact.producer_attempt_id,
                 receptor_pdbqt=request.receptor_pdbqt,
