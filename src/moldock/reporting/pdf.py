@@ -522,8 +522,25 @@ class ReportLabPipelineReporter:
                 if pose.rank is not None
             }
             rank_one = ranked_values.get(1)
+            cluster_labels: dict[str, str] = {}
+            for pose in scientific.poses:
+                if (
+                    pose.cluster_id is not None
+                    and pose.cluster_id not in cluster_labels
+                ):
+                    cluster_labels[pose.cluster_id] = (
+                        f"C{len(cluster_labels) + 1}"
+                    )
             score_rows = [
-                ["Rank", "Ligand", "Score", "Δ vs rank 1", "Unit", "Method"]
+                [
+                    "Rank",
+                    "Ligand",
+                    "Score",
+                    "Δ score",
+                    "RMSD Å",
+                    "Cluster",
+                    "Ligand efficiency",
+                ]
             ]
             for pose in scientific.poses:
                 delta = (
@@ -537,8 +554,21 @@ class ReportLabPipelineReporter:
                         pose.ligand_id,
                         _score_value(pose.score_value),
                         delta,
-                        pose.score_unit or "",
-                        f"{pose.method} {pose.method_version}",
+                        (
+                            ""
+                            if pose.rmsd_to_rank1 is None
+                            else f"{pose.rmsd_to_rank1:.3f}"
+                        ),
+                        (
+                            ""
+                            if pose.cluster_id is None
+                            else cluster_labels[pose.cluster_id]
+                        ),
+                        (
+                            ""
+                            if pose.ligand_efficiency is None
+                            else f"{pose.ligand_efficiency:.3f} kcal/mol/HA"
+                        ),
                     ]
                 )
             story.extend(
@@ -546,8 +576,16 @@ class ReportLabPipelineReporter:
                     paragraph("Pose-level results", "DockingH2"),
                     striped_table(
                         score_rows,
-                        [14 * mm, 24 * mm, 28 * mm, 31 * mm, 25 * mm, 52 * mm],
-                        right_columns=(0, 2, 3),
+                        [
+                            12 * mm,
+                            22 * mm,
+                            24 * mm,
+                            22 * mm,
+                            24 * mm,
+                            22 * mm,
+                            48 * mm,
+                        ],
+                        right_columns=(0, 2, 3, 4, 6),
                     ),
                 ]
             )
