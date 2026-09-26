@@ -175,3 +175,12 @@ def test_domain_conflict_is_not_retried_as_transaction_conflict(tmp_path):
         repo.register(conflicting)
 
     assert repo.get(first.artifact_id) == first
+
+
+
+def test_artifact_get_returns_none_for_unknown_id(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        assert repo.get("missing") is None
+    finally:
+        repo.close()
