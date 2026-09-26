@@ -45,7 +45,7 @@ branch = true
 source = ["moldock"]
 
 [tool.coverage.report]
-fail_under = 95
+fail_under = 99
 precision = 2
 show_missing = true
 skip_covered = false
