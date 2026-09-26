@@ -8,6 +8,8 @@ from moldock.domain import (
     DomainValidationError,
     FailureKind,
     Pose,
+    PoseInteraction,
+    PoseInteractionKind,
     PoseRanking,
     PoseScore,
     ScoreKind,
@@ -507,3 +509,218 @@ def test_reportlab_pdf_renders_recurrent_cluster_evidence():
 
     assert pdf.startswith(b"%PDF-")
     assert len(pdf) > 2_000
+
+
+
+def test_pipeline_report_builder_rejects_missing_task_reference():
+    result = PipelineRunResult(
+        run_id="run_missing",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        manifest_id="manifest_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=(),
+        task_ids=("missing_task",),
+    )
+
+    with pytest.raises(DomainValidationError, match="report task not found"):
+        PipelineReportBuilder(
+            task_repository=InMemoryTaskRepository(),
+            artifact_repository=InMemoryArtifactRepository(),
+            scientific_result_repository=InMemoryScientificResultRepository(),
+        ).build(result)
+
+
+def test_pipeline_report_builder_rebuilds_interactions():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 9, 26, tzinfo=timezone.utc)
+    tasks = InMemoryTaskRepository()
+    artifacts = InMemoryArtifactRepository()
+    science = InMemoryScientificResultRepository()
+    task = DockingTask(
+        experiment_id="exp_1",
+        receptor_id="rec_1",
+        ligand_id="lig_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_id="plig_1",
+        search_space_id="space_1",
+    )
+    tasks.register(task)
+    attempt = tasks.claim_next("exp_1", "run_1", "worker_1", now)
+    pose = Pose(
+        task_id=task.task_id,
+        attempt_id=attempt.attempt_id,
+        source_artifact_id="artifact_1",
+        model_index=1,
+        geometry_sha256="a" * 64,
+    )
+    science.register_pose(pose)
+    interaction = PoseInteraction(
+        pose_id=pose.pose_id,
+        kind=PoseInteractionKind.CONTACT,
+        receptor_atom_serial=1,
+        receptor_atom_name="CA",
+        receptor_residue_name="ALA",
+        receptor_chain="A",
+        receptor_residue_number="10",
+        ligand_atom_serial=2,
+        ligand_atom_name="C1",
+        distance_angstrom=3.0,
+        method="test",
+        method_version="1",
+    )
+    science.register_interaction(interaction)
+    tasks.succeed(attempt.attempt_id, now)
+
+    result = PipelineRunResult(
+        run_id="run_1",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        manifest_id="manifest_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        task_ids=(task.task_id,),
+    )
+    report = PipelineReportBuilder(
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        scientific_result_repository=science,
+    ).build(result)
+
+    assert len(report.tasks[0].interactions) == 1
+    assert report.tasks[0].interactions[0].interaction_id == interaction.interaction_id
+
+
+def test_text_and_markdown_render_optional_score_unit_and_unclassified_error():
+    task = TaskPipelineReport(
+        task_id="task_1|pipe",
+        ligand_id="lig\n1",
+        status=TaskStatus.FAILED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error="plain error",
+        artifact_ids=(),
+        pose_ids=("pose_1",),
+        scores=(
+            ScoreObservation(
+                score_id="score_1",
+                pose_id="pose_1",
+                kind="custom",
+                value=1.25,
+                unit=None,
+                method="method",
+                method_version="1",
+            ),
+        ),
+        rankings=(),
+    )
+    report = PipelineReport(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=(),
+        tasks=(task,),
+    )
+
+    text_report = TextPipelineReporter().render(report)
+    markdown = MarkdownPipelineReporter().render(report)
+
+    assert "custom=1.25 method=method@1" in text_report
+    assert "plain error" in markdown
+    assert "task_1\\|pipe" in markdown
+    assert "lig 1" in markdown
+    assert "| lig 1 | pose_1 | custom | 1.25 |  | method | 1 |" in markdown
+
+
+def test_reportlab_pdf_requires_reportlab_dependency(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name.startswith("reportlab"):
+            raise ImportError("blocked")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+
+    report = PipelineReport(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=(),
+        tasks=(),
+    )
+
+    with pytest.raises(RuntimeError, match="PDF reporting requires"):
+        ReportLabPipelineReporter().render(report)
+
+
+def test_reportlab_pdf_handles_multiple_score_families_without_score_chart():
+    task = TaskPipelineReport(
+        task_id="task_1",
+        ligand_id="lig_1",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_1", "pose_2"),
+        scores=(
+            ScoreObservation(
+                score_id="score_1",
+                pose_id="pose_1",
+                kind="vina_affinity",
+                value=-8.0,
+                unit="kcal/mol",
+                method="vina",
+                method_version="1.2.7",
+                attempt_id="attempt_1",
+            ),
+            ScoreObservation(
+                score_id="score_2",
+                pose_id="pose_2",
+                kind="vina_affinity",
+                value=-7.0,
+                unit="kcal/mol",
+                method="vina",
+                method_version="1.2.8",
+                attempt_id="attempt_1",
+            ),
+        ),
+        rankings=(
+            RankingObservation(
+                ranking_id="rank_1",
+                pose_id="pose_1",
+                rank=1,
+                method="vina_affinity",
+            ),
+            RankingObservation(
+                ranking_id="rank_2",
+                pose_id="pose_2",
+                rank=1,
+                method="vina_affinity",
+            ),
+        ),
+    )
+    report = PipelineReport(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        tasks=(task,),
+        receptor_id="rec",
+    )
+
+    pdf = ReportLabPipelineReporter().render(report)
+
+    assert pdf.startswith(b"%PDF-")
