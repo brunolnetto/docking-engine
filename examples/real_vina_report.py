@@ -30,6 +30,7 @@ from moldock.reporting import (
 )
 from moldock.results import (
     DuckLakeScientificResultRepository,
+    PdbqtPoseInteractionAnalyzer,
     VinaResultInterpreter,
 )
 from moldock.storage import FilesystemArtifactStore
@@ -187,6 +188,12 @@ def main() -> int:
             artifact_store=artifact_store,
             repository=science,
             method_version=VINA_VERSION,
+            interaction_analyzer=PdbqtPoseInteractionAnalyzer(
+                task_repository=tasks,
+                prepared_inputs=prepared,
+                artifact_store=artifact_store,
+                repository=science,
+            ),
         )
         pipeline = OfflineDockingPipeline(
             receptor_preparer=MeekoReceptorPreparer(
