@@ -12,6 +12,7 @@ from .model import PipelineReport
 class ScientificPoseResult:
     ligand_id: str
     pose_id: str
+    attempt_id: str | None
     rank: int | None
     score_kind: str
     score_value: float
@@ -30,6 +31,40 @@ class ScientificPoseResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ResidueSupport:
+    interaction_kind: str
+    residue_label: str
+    pose_count: int
+    cluster_size: int
+
+    @property
+    def fraction(self) -> float:
+        return self.pose_count / self.cluster_size
+
+
+@dataclass(frozen=True, slots=True)
+class PoseEvidenceSummary:
+    ligand_id: str
+    pose_id: str
+    attempt_id: str | None
+    rank: int | None
+    score_kind: str
+    score_value: float
+    score_unit: str | None
+    method: str
+    method_version: str
+    delta_to_rank1: float | None
+    rmsd_to_rank1: float | None
+    cluster_id: str | None
+    cluster_size: int | None
+    ligand_efficiency: float | None
+    hydrogen_bond_residues: tuple[str, ...]
+    hydrophobic_residues: tuple[str, ...]
+    cluster_hydrogen_bond_support: tuple[ResidueSupport, ...] = ()
+    cluster_hydrophobic_support: tuple[ResidueSupport, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ScientificNarrative:
     title: str
     objective: str
@@ -44,6 +79,7 @@ class ScientificNarrative:
 class ScientificExperimentReport:
     source: PipelineReport
     poses: tuple[ScientificPoseResult, ...]
+    evidence: tuple[PoseEvidenceSummary, ...]
     narrative: ScientificNarrative
 
     @property
@@ -78,10 +114,12 @@ class ScientificReportBuilder:
 
     def build(self, report: PipelineReport) -> ScientificExperimentReport:
         poses = self._poses(report)
-        narrative = self._narrative(report, poses)
+        evidence = self._evidence(poses)
+        narrative = self._narrative(report, poses, evidence)
         return ScientificExperimentReport(
             source=report,
             poses=poses,
+            evidence=evidence,
             narrative=narrative,
         )
 
@@ -112,6 +150,13 @@ class ScientificReportBuilder:
                     [],
                 ).append(interaction)
             for score in task.scores:
+                if (
+                    task.status is TaskStatus.SUCCEEDED
+                    and task.final_attempt_id is not None
+                    and score.attempt_id is not None
+                    and score.attempt_id != task.final_attempt_id
+                ):
+                    continue
                 if not isfinite(score.value):
                     continue
                 pose_metrics = metrics_by_pose.get(score.pose_id, {})
@@ -132,6 +177,7 @@ class ScientificReportBuilder:
                     ScientificPoseResult(
                         ligand_id=task.ligand_id,
                         pose_id=score.pose_id,
+                        attempt_id=score.attempt_id,
                         rank=rankings.get((score.pose_id, score.kind)),
                         score_kind=score.kind,
                         score_value=score.value,
@@ -183,10 +229,143 @@ class ScientificReportBuilder:
             )
         )
 
+    def _evidence(
+        self,
+        poses: tuple[ScientificPoseResult, ...],
+    ) -> tuple[PoseEvidenceSummary, ...]:
+        by_family: dict[
+            tuple[str, str | None, str, str, str, str | None],
+            list[ScientificPoseResult],
+        ] = {}
+        for pose in poses:
+            by_family.setdefault(
+                (
+                    pose.ligand_id,
+                    pose.attempt_id,
+                    pose.method,
+                    pose.method_version,
+                    pose.score_kind,
+                    pose.score_unit,
+                ),
+                [],
+            ).append(pose)
+
+        evidence: list[PoseEvidenceSummary] = []
+        for family in by_family.values():
+            ranked = sorted(
+                family,
+                key=lambda pose: (
+                    pose.rank is None,
+                    pose.rank if pose.rank is not None else 10**9,
+                    pose.pose_id,
+                ),
+            )
+            rank_one = next(
+                (pose for pose in ranked if pose.rank == 1),
+                None,
+            )
+            cluster_members: dict[str, list[ScientificPoseResult]] = {}
+            for pose in ranked:
+                if pose.cluster_id is not None:
+                    cluster_members.setdefault(
+                        pose.cluster_id,
+                        [],
+                    ).append(pose)
+
+            for pose in ranked:
+                members = (
+                    cluster_members.get(pose.cluster_id, [])
+                    if pose.cluster_id is not None
+                    else []
+                )
+                cluster_size = len(members) if members else None
+                hbond_support = self._residue_support(
+                    members,
+                    interaction_kind="hydrogen_bond",
+                )
+                hydrophobic_support = self._residue_support(
+                    members,
+                    interaction_kind="hydrophobic_contact",
+                )
+                evidence.append(
+                    PoseEvidenceSummary(
+                        ligand_id=pose.ligand_id,
+                        pose_id=pose.pose_id,
+                        attempt_id=pose.attempt_id,
+                        rank=pose.rank,
+                        score_kind=pose.score_kind,
+                        score_value=pose.score_value,
+                        score_unit=pose.score_unit,
+                        method=pose.method,
+                        method_version=pose.method_version,
+                        delta_to_rank1=(
+                            None
+                            if rank_one is None
+                            else pose.score_value - rank_one.score_value
+                        ),
+                        rmsd_to_rank1=pose.rmsd_to_rank1,
+                        cluster_id=pose.cluster_id,
+                        cluster_size=cluster_size,
+                        ligand_efficiency=pose.ligand_efficiency,
+                        hydrogen_bond_residues=pose.hydrogen_bond_residues,
+                        hydrophobic_residues=pose.hydrophobic_residues,
+                        cluster_hydrogen_bond_support=hbond_support,
+                        cluster_hydrophobic_support=hydrophobic_support,
+                    )
+                )
+
+        return tuple(
+            sorted(
+                evidence,
+                key=lambda item: (
+                    item.ligand_id,
+                    item.method,
+                    item.method_version,
+                    item.score_kind,
+                    item.score_unit or "",
+                    item.attempt_id or "",
+                    item.rank is None,
+                    item.rank if item.rank is not None else 10**9,
+                    item.pose_id,
+                ),
+            )
+        )
+
+    @staticmethod
+    def _residue_support(
+        members: list[ScientificPoseResult],
+        *,
+        interaction_kind: str,
+    ) -> tuple[ResidueSupport, ...]:
+        if not members:
+            return ()
+        counts: dict[str, int] = {}
+        for pose in members:
+            residues = (
+                pose.hydrogen_bond_residues
+                if interaction_kind == "hydrogen_bond"
+                else pose.hydrophobic_residues
+            )
+            for residue in set(residues):
+                counts[residue] = counts.get(residue, 0) + 1
+        return tuple(
+            ResidueSupport(
+                interaction_kind=interaction_kind,
+                residue_label=residue,
+                pose_count=count,
+                cluster_size=len(members),
+            )
+            for residue, count in sorted(
+                counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+        )
+
     def _narrative(
         self,
         report: PipelineReport,
         poses: tuple[ScientificPoseResult, ...],
+        evidence: tuple[PoseEvidenceSummary, ...],
     ) -> ScientificNarrative:
         ligand_ids = sorted({task.ligand_id for task in report.tasks})
         receptor = report.receptor_id or "the selected receptor"
@@ -244,16 +423,23 @@ class ScientificReportBuilder:
         next_steps: list[str] = []
 
         groups: dict[
-            tuple[str, str, str | None],
+            tuple[str, str, str, str | None],
             list[ScientificPoseResult],
         ] = {}
         for pose in poses:
             groups.setdefault(
-                (pose.method, pose.score_kind, pose.score_unit),
+                (
+                    pose.method,
+                    pose.method_version,
+                    pose.score_kind,
+                    pose.score_unit,
+                ),
                 [],
             ).append(pose)
 
-        for (method, kind, unit), group in sorted(groups.items()):
+        for (method, method_version, kind, unit), group in sorted(
+            groups.items()
+        ):
             ranked = sorted(
                 (pose for pose in group if pose.rank is not None),
                 key=lambda pose: pose.rank or 10**9,
@@ -288,12 +474,13 @@ class ScientificReportBuilder:
             elif ranked:
                 interpretation.append(
                     f"{len(ranked)} ranked pose(s) were persisted for "
-                    f"{method}/{kind}; no cross-method ordering was inferred."
+                    f"{method}@{method_version}/{kind}; no cross-method "
+                    "or cross-version ordering was inferred."
                 )
                 conclusion = (
-                    f"The {method}/{kind} results support prioritization only "
-                    "within that score family; no cross-method conclusion was "
-                    "derived."
+                    f"The {method}@{method_version}/{kind} results support "
+                    "prioritization only within that score family; no "
+                    "cross-method or cross-version conclusion was derived."
                 )
 
         if not interpretation:
@@ -439,6 +626,61 @@ class ScientificReportBuilder:
                 next_steps.append(
                     "Characterize protein-ligand contacts for the leading pose families."
                 )
+        if evidence:
+            top_evidence = next(
+                (item for item in evidence if item.rank == 1),
+                evidence[0],
+            )
+            if top_evidence.cluster_size is not None:
+                interpretation.append(
+                    f"Rank 1 belongs to an RMSD cluster containing "
+                    f"{top_evidence.cluster_size} pose(s)."
+                )
+            recurrent_hbonds = [
+                item
+                for item in top_evidence.cluster_hydrogen_bond_support
+                if item.pose_count > 1
+            ]
+            recurrent_hydrophobic = [
+                item
+                for item in top_evidence.cluster_hydrophobic_support
+                if item.pose_count > 1
+            ]
+            if recurrent_hbonds:
+                interpretation.append(
+                    "Hydrogen-bond residues recurring within the rank-1 "
+                    "cluster: "
+                    + ", ".join(
+                        f"{item.residue_label} "
+                        f"({item.pose_count}/{item.cluster_size} poses)"
+                        for item in recurrent_hbonds
+                    )
+                    + "."
+                )
+            if recurrent_hydrophobic:
+                interpretation.append(
+                    "Hydrophobic-contact residues recurring within the "
+                    "rank-1 cluster: "
+                    + ", ".join(
+                        f"{item.residue_label} "
+                        f"({item.pose_count}/{item.cluster_size} poses)"
+                        for item in recurrent_hydrophobic
+                    )
+                    + "."
+                )
+            if recurrent_hbonds or recurrent_hydrophobic:
+                conclusion += (
+                    " The rank-1 pose family also shows recurring "
+                    "residue-level interactions across structurally similar "
+                    "poses, providing convergent structural evidence for "
+                    "follow-up without creating a cross-signal ranking."
+                )
+            limitations.append(
+                "Cluster interaction support is a pose-family recurrence "
+                "summary, not dynamic occupancy from a molecular-dynamics "
+                "ensemble."
+            )
+
         if report.failed_count:
             conclusion = (
                 "No scientific docking conclusion should be drawn until the "

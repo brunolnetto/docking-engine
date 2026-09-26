@@ -111,6 +111,36 @@ def _successful_report():
             method="pdbqt_geometric_interactions",
             method_version="1",
         ),
+        InteractionObservation(
+            interaction_id="hb_2",
+            pose_id="pose_2",
+            kind="hydrogen_bond",
+            receptor_atom_serial=100,
+            receptor_atom_name="NZ",
+            receptor_residue_name="LYS",
+            receptor_chain="A",
+            receptor_residue_number="271",
+            ligand_atom_serial=10,
+            ligand_atom_name="O1",
+            distance_angstrom=3.0,
+            method="pdbqt_geometric_interactions",
+            method_version="1",
+        ),
+        InteractionObservation(
+            interaction_id="hydro_2",
+            pose_id="pose_2",
+            kind="hydrophobic_contact",
+            receptor_atom_serial=101,
+            receptor_atom_name="CD1",
+            receptor_residue_name="LEU",
+            receptor_chain="A",
+            receptor_residue_number="248",
+            ligand_atom_serial=11,
+            ligand_atom_name="C1",
+            distance_angstrom=3.9,
+            method="pdbqt_geometric_interactions",
+            method_version="1",
+        ),
     )
     task = TaskPipelineReport(
         task_id="task_1",
@@ -174,6 +204,37 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert any(
         "Rank 1 has" in item and "hydrogen bond" in item
         for item in report.narrative.interpretation
+    )
+    assert len(report.evidence) == 5
+    top_evidence = report.evidence[0]
+    assert top_evidence.rank == 1
+    assert top_evidence.delta_to_rank1 == 0.0
+    assert top_evidence.cluster_size == 2
+    assert top_evidence.rmsd_to_rank1 == 0.0
+    assert top_evidence.ligand_efficiency == pytest.approx(13.286 / 37)
+    assert top_evidence.cluster_hydrogen_bond_support[0].residue_label == (
+        "A:LYS271"
+    )
+    assert top_evidence.cluster_hydrogen_bond_support[0].pose_count == 2
+    assert top_evidence.cluster_hydrogen_bond_support[0].cluster_size == 2
+    assert top_evidence.cluster_hydrogen_bond_support[0].fraction == 1.0
+    assert top_evidence.cluster_hydrophobic_support[0].residue_label == (
+        "A:LEU248"
+    )
+    assert top_evidence.cluster_hydrophobic_support[0].pose_count == 2
+    assert report.evidence[1].delta_to_rank1 == pytest.approx(1.957)
+    assert any(
+        "A:LYS271 (2/2 poses)" in item
+        for item in report.narrative.interpretation
+    )
+    assert any(
+        "A:LEU248 (2/2 poses)" in item
+        for item in report.narrative.interpretation
+    )
+    assert "recurring residue-level interactions" in report.narrative.conclusion
+    assert any(
+        "not dynamic occupancy" in item
+        for item in report.narrative.limitations
     )
 
 
@@ -259,5 +320,207 @@ def test_scientific_report_does_not_infer_cross_method_order():
 
     assert report.completed is True
     assert report.poses[0].score_value == 0.123456789
-    assert any("no cross-method ordering was inferred" in item for item in report.narrative.interpretation)
-    assert "no cross-method conclusion" in report.narrative.conclusion
+    assert any(
+        "no cross-method or cross-version ordering was inferred" in item
+        for item in report.narrative.interpretation
+    )
+    assert (
+        "no cross-method or cross-version conclusion"
+        in report.narrative.conclusion
+    )
+
+
+
+def test_pose_evidence_does_not_create_composite_ranking():
+    report = ScientificReportBuilder().build(_successful_report())
+
+    assert not hasattr(report.evidence[0], "score")
+    assert not hasattr(report.evidence[0], "evidence_score")
+    assert [item.rank for item in report.evidence] == [1, 2, 3, 4, 5]
+
+
+def test_pose_evidence_cluster_support_is_scoped_to_pose_family():
+    source = _successful_report()
+    first_task = source.tasks[0]
+    second_score, second_ranking = _score("other_pose", -7.0, 1)
+    second_task = TaskPipelineReport(
+        task_id="task_2",
+        ligand_id="OTHER",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_2",
+        failure_kind=None,
+        error=None,
+        artifact_ids=("artifact_2",),
+        pose_ids=("other_pose",),
+        scores=(second_score,),
+        rankings=(second_ranking,),
+        metrics=(),
+        clusters=(
+            ClusterObservation(
+                assignment_id="other_assignment",
+                pose_id="other_pose",
+                cluster_id="c1",
+                method="rank_ordered_leader_rmsd",
+                method_version="1",
+            ),
+        ),
+        interactions=(),
+    )
+    combined = PipelineReport(
+        run_id=source.run_id,
+        experiment_id=source.experiment_id,
+        protocol_id=source.protocol_id,
+        manifest_id=source.manifest_id,
+        prepared_receptor_id=source.prepared_receptor_id,
+        prepared_ligand_ids=source.prepared_ligand_ids + ("other",),
+        tasks=(first_task, second_task),
+        receptor_id=source.receptor_id,
+    )
+
+    report = ScientificReportBuilder().build(combined)
+
+    sti_rank1 = next(
+        item
+        for item in report.evidence
+        if item.ligand_id == "STI" and item.rank == 1
+    )
+    other_rank1 = next(
+        item
+        for item in report.evidence
+        if item.ligand_id == "OTHER" and item.rank == 1
+    )
+    assert sti_rank1.cluster_size == 2
+    assert other_rank1.cluster_size == 1
+    assert other_rank1.cluster_hydrogen_bond_support == ()
+
+
+
+def test_pose_evidence_uses_only_final_successful_attempt_when_provenance_exists():
+    stale_score, stale_ranking = _score("stale_pose", -12.0, 1)
+    final_score, final_ranking = _score("final_pose", -10.0, 1)
+    stale_score = ScoreObservation(
+        score_id=stale_score.score_id,
+        pose_id=stale_score.pose_id,
+        kind=stale_score.kind,
+        value=stale_score.value,
+        unit=stale_score.unit,
+        method=stale_score.method,
+        method_version=stale_score.method_version,
+        attempt_id="attempt_1",
+    )
+    final_score = ScoreObservation(
+        score_id=final_score.score_id,
+        pose_id=final_score.pose_id,
+        kind=final_score.kind,
+        value=final_score.value,
+        unit=final_score.unit,
+        method=final_score.method,
+        method_version=final_score.method_version,
+        attempt_id="attempt_2",
+    )
+    task = TaskPipelineReport(
+        task_id="task_retry",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=2,
+        final_attempt_id="attempt_2",
+        failure_kind=None,
+        error=None,
+        artifact_ids=("artifact_stale", "artifact_final"),
+        pose_ids=("stale_pose", "final_pose"),
+        scores=(stale_score, final_score),
+        rankings=(stale_ranking, final_ranking),
+    )
+    source = PipelineReport(
+        run_id="run_retry",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        manifest_id="manifest_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        tasks=(task,),
+        receptor_id="rec_1",
+    )
+
+    report = ScientificReportBuilder().build(source)
+
+    assert [pose.pose_id for pose in report.poses] == ["final_pose"]
+    assert report.poses[0].attempt_id == "attempt_2"
+    assert len(report.evidence) == 1
+    assert report.evidence[0].pose_id == "final_pose"
+    assert report.evidence[0].delta_to_rank1 == 0.0
+
+
+def test_pose_evidence_separates_scoring_method_versions():
+    scores = (
+        ScoreObservation(
+            score_id="score_v1",
+            pose_id="pose_v1",
+            kind="custom_score",
+            value=1.0,
+            unit="arb",
+            method="custom",
+            method_version="1",
+            attempt_id="attempt_1",
+        ),
+        ScoreObservation(
+            score_id="score_v2",
+            pose_id="pose_v2",
+            kind="custom_score",
+            value=100.0,
+            unit="arb",
+            method="custom",
+            method_version="2",
+            attempt_id="attempt_1",
+        ),
+    )
+    rankings = (
+        RankingObservation(
+            ranking_id="rank_v1",
+            pose_id="pose_v1",
+            rank=1,
+            method="custom_score",
+        ),
+        RankingObservation(
+            ranking_id="rank_v2",
+            pose_id="pose_v2",
+            rank=1,
+            method="custom_score",
+        ),
+    )
+    task = TaskPipelineReport(
+        task_id="task_versions",
+        ligand_id="LIG",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_v1", "pose_v2"),
+        scores=scores,
+        rankings=rankings,
+    )
+    source = PipelineReport(
+        run_id="run_versions",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        manifest_id="manifest_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        tasks=(task,),
+        receptor_id="rec_1",
+    )
+
+    report = ScientificReportBuilder().build(source)
+
+    assert len(report.evidence) == 2
+    assert {item.method_version for item in report.evidence} == {"1", "2"}
+    assert all(item.delta_to_rank1 == 0.0 for item in report.evidence)
+    assert all(item.method == "custom" for item in report.evidence)
+    assert all(item.score_kind == "custom_score" for item in report.evidence)
+    assert any(
+        "cross-version" in item
+        for item in report.narrative.interpretation
+    )

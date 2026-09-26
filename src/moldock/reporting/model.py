@@ -15,6 +15,7 @@ class ScoreObservation:
     unit: str | None
     method: str
     method_version: str
+    attempt_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -161,6 +161,7 @@ class PipelineReportBuilder:
                             unit=score.unit,
                             method=score.method,
                             method_version=score.method_version,
+                            attempt_id=pose.attempt_id,
                         )
                     )
                 for ranking in self._science.list_rankings_for_pose(

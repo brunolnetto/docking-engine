@@ -306,7 +306,14 @@ class ReportLabPipelineReporter:
             if not poses:
                 return None
             families = {
-                (pose.method, pose.score_kind, pose.score_unit)
+                (
+                    pose.ligand_id,
+                    pose.method,
+                    pose.method_version,
+                    pose.score_kind,
+                    pose.score_unit,
+                    pose.attempt_id,
+                )
                 for pose in poses
             }
             if len(families) != 1:
@@ -363,7 +370,9 @@ class ReportLabPipelineReporter:
                 String(
                     bar_x,
                     height - 5 * mm,
-                    f"{poses[0].method}/{poses[0].score_kind} ({unit})",
+                    f"{poses[0].ligand_id} | "
+                    f"{poses[0].method}@{poses[0].method_version}/"
+                    f"{poses[0].score_kind} ({unit})",
                     fontName="Helvetica",
                     fontSize=7,
                     fillColor=muted,
@@ -516,12 +525,17 @@ class ReportLabPipelineReporter:
             )
 
         if scientific.poses:
-            ranked_values = {
-                pose.rank: pose.score_value
-                for pose in scientific.poses
-                if pose.rank is not None
+            evidence_by_pose_family = {
+                (
+                    item.pose_id,
+                    item.method,
+                    item.method_version,
+                    item.score_kind,
+                    item.score_unit,
+                    item.attempt_id,
+                ): item
+                for item in scientific.evidence
             }
-            rank_one = ranked_values.get(1)
             cluster_labels: dict[str, str] = {}
             for pose in scientific.poses:
                 if (
@@ -543,10 +557,20 @@ class ReportLabPipelineReporter:
                 ]
             ]
             for pose in scientific.poses:
+                evidence = evidence_by_pose_family.get(
+                    (
+                        pose.pose_id,
+                        pose.method,
+                        pose.method_version,
+                        pose.score_kind,
+                        pose.score_unit,
+                        pose.attempt_id,
+                    )
+                )
                 delta = (
                     ""
-                    if rank_one is None or pose.rank is None
-                    else f"{pose.score_value - rank_one:.3f}"
+                    if evidence is None or evidence.delta_to_rank1 is None
+                    else f"{evidence.delta_to_rank1:.3f}"
                 )
                 score_rows.append(
                     [
@@ -628,6 +652,83 @@ class ReportLabPipelineReporter:
                             58 * mm,
                         ],
                         right_columns=(0, 1, 2),
+                    ),
+                ]
+            )
+
+        evidence_rows = [
+            [
+                "Ligand / score family",
+                "Rank",
+                "Δ score",
+                "RMSD Å",
+                "Cluster n",
+                "Ligand efficiency",
+                "Recurring cluster interactions",
+            ]
+        ]
+        for item in scientific.evidence:
+            recurrent = []
+            for support in item.cluster_hydrogen_bond_support:
+                if support.pose_count > 1:
+                    recurrent.append(
+                        f"H-bond {support.residue_label} "
+                        f"{support.pose_count}/{support.cluster_size}"
+                    )
+            for support in item.cluster_hydrophobic_support:
+                if support.pose_count > 1:
+                    recurrent.append(
+                        f"Hydrophobic {support.residue_label} "
+                        f"{support.pose_count}/{support.cluster_size}"
+                    )
+            evidence_rows.append(
+                [
+                    (
+                        f"{item.ligand_id} | {item.method}@"
+                        f"{item.method_version}/{item.score_kind}"
+                    ),
+                    item.rank if item.rank is not None else "—",
+                    (
+                        "—"
+                        if item.delta_to_rank1 is None
+                        else f"{item.delta_to_rank1:.3f}"
+                    ),
+                    (
+                        "—"
+                        if item.rmsd_to_rank1 is None
+                        else f"{item.rmsd_to_rank1:.3f}"
+                    ),
+                    item.cluster_size if item.cluster_size is not None else "—",
+                    (
+                        "—"
+                        if item.ligand_efficiency is None
+                        else f"{item.ligand_efficiency:.3f}"
+                    ),
+                    ", ".join(recurrent) or "—",
+                ]
+            )
+        if len(evidence_rows) > 1:
+            story.extend(
+                [
+                    paragraph("Pose evidence summary", "DockingH2"),
+                    paragraph(
+                        "Independent score, geometry, efficiency, and "
+                        "interaction evidence are shown side by side; no "
+                        "composite evidence score is calculated.",
+                        "DockingSubtitle",
+                    ),
+                    striped_table(
+                        evidence_rows,
+                        [
+                            38 * mm,
+                            12 * mm,
+                            18 * mm,
+                            18 * mm,
+                            18 * mm,
+                            24 * mm,
+                            46 * mm,
+                        ],
+                        right_columns=(1, 2, 3, 4, 5),
                     ),
                 ]
             )

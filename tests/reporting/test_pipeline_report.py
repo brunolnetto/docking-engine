@@ -20,7 +20,10 @@ from moldock.repositories import (
     InMemoryTaskRepository,
 )
 from moldock.reporting import (
+    ClusterObservation,
+    InteractionObservation,
     JsonPipelineReporter,
+    MetricObservation,
     MarkdownPipelineReporter,
     PipelineReport,
     PipelineReportBuilder,
@@ -380,3 +383,127 @@ def test_reportlab_pdf_keeps_full_diagnostics_and_score_precision():
     assert pdf.startswith(b"%PDF-")
     assert len(pdf) > 5_000
     assert _score_value(value) == repr(value)
+
+
+
+def test_reportlab_pdf_renders_recurrent_cluster_evidence():
+    scores = (
+        ScoreObservation(
+            score_id="score_1",
+            pose_id="pose_1",
+            kind="vina_affinity",
+            value=-10.0,
+            unit="kcal/mol",
+            method="vina",
+            method_version="1.2.7",
+        ),
+        ScoreObservation(
+            score_id="score_2",
+            pose_id="pose_2",
+            kind="vina_affinity",
+            value=-9.5,
+            unit="kcal/mol",
+            method="vina",
+            method_version="1.2.7",
+        ),
+    )
+    rankings = (
+        RankingObservation(
+            ranking_id="rank_1",
+            pose_id="pose_1",
+            rank=1,
+            method="vina_affinity",
+        ),
+        RankingObservation(
+            ranking_id="rank_2",
+            pose_id="pose_2",
+            rank=2,
+            method="vina_affinity",
+        ),
+    )
+    metrics = (
+        MetricObservation(
+            metric_id="rmsd_1",
+            pose_id="pose_1",
+            kind="rmsd_to_rank1",
+            value=0.0,
+            unit="angstrom",
+            method="pdbqt_atom_order_direct_rmsd",
+            method_version="1",
+        ),
+        MetricObservation(
+            metric_id="rmsd_2",
+            pose_id="pose_2",
+            kind="rmsd_to_rank1",
+            value=1.0,
+            unit="angstrom",
+            method="pdbqt_atom_order_direct_rmsd",
+            method_version="1",
+        ),
+    )
+    clusters = (
+        ClusterObservation(
+            assignment_id="cluster_assignment_1",
+            pose_id="pose_1",
+            cluster_id="cluster_1",
+            method="rank_ordered_leader_rmsd",
+            method_version="1",
+        ),
+        ClusterObservation(
+            assignment_id="cluster_assignment_2",
+            pose_id="pose_2",
+            cluster_id="cluster_1",
+            method="rank_ordered_leader_rmsd",
+            method_version="1",
+        ),
+    )
+    interactions = tuple(
+        InteractionObservation(
+            interaction_id=f"{kind}_{pose_id}",
+            pose_id=pose_id,
+            kind=kind,
+            receptor_atom_serial=10 if kind == "hydrogen_bond" else 20,
+            receptor_atom_name="NZ" if kind == "hydrogen_bond" else "CD1",
+            receptor_residue_name="LYS" if kind == "hydrogen_bond" else "LEU",
+            receptor_chain="A",
+            receptor_residue_number="271" if kind == "hydrogen_bond" else "248",
+            ligand_atom_serial=1,
+            ligand_atom_name="O1" if kind == "hydrogen_bond" else "C1",
+            distance_angstrom=2.8 if kind == "hydrogen_bond" else 3.8,
+            method="pdbqt_geometric_interactions",
+            method_version="1",
+        )
+        for pose_id in ("pose_1", "pose_2")
+        for kind in ("hydrogen_bond", "hydrophobic_contact")
+    )
+    task = TaskPipelineReport(
+        task_id="task_1",
+        ligand_id="lig_1",
+        status=TaskStatus.SUCCEEDED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=None,
+        error=None,
+        artifact_ids=(),
+        pose_ids=("pose_1", "pose_2"),
+        scores=scores,
+        rankings=rankings,
+        metrics=metrics,
+        clusters=clusters,
+        interactions=interactions,
+    )
+    report = PipelineReport(
+        run_id="run_evidence",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        manifest_id="manifest_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        tasks=(task,),
+        receptor_id="rec_1",
+    )
+
+    pdf = ReportLabPipelineReporter().render(report)
+
+    assert pdf.startswith(b"%PDF-")
+    assert len(pdf) > 2_000
