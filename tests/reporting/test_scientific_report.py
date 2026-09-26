@@ -207,6 +207,18 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
         for item in report.narrative.interpretation
     )
     assert len(report.evidence) == 5
+    assert len(report.families) == 4
+    leading_family = report.families[0]
+    assert leading_family.pose_count == 2
+    assert leading_family.best_rank == 1
+    assert leading_family.rmsd_min == 0.0
+    assert leading_family.rmsd_max == 1.7
+    assert leading_family.recurrent_hydrogen_bonds[0].residue_label == (
+        "A:LYS271"
+    )
+    assert leading_family.recurrent_hydrophobic_contacts[0].residue_label == (
+        "A:LEU248"
+    )
     top_evidence = report.evidence[0]
     assert top_evidence.rank == 1
     assert top_evidence.delta_to_rank1 == 0.0
