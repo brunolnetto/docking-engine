@@ -7,12 +7,14 @@ from .model import (
 )
 from .renderers import (
     JsonPipelineReporter,
+    MarkdownPipelineReporter,
     PipelineReporter,
     TextPipelineReporter,
 )
 
 __all__ = [
     "JsonPipelineReporter",
+    "MarkdownPipelineReporter",
     "PipelineReport",
     "PipelineReportBuilder",
     "PipelineReporter",

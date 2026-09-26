@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from moldock.domain import FailureKind, TaskStatus
+from moldock.toolchain import ToolchainSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,12 @@ class PipelineReport:
     prepared_receptor_id: str
     prepared_ligand_ids: tuple[str, ...]
     tasks: tuple[TaskPipelineReport, ...]
+    run_manifest_id: str | None = None
+    search_space_id: str | None = None
+    receptor_id: str | None = None
+    receptor_source_sha256: str | None = None
+    ligand_sources: tuple[tuple[str, str], ...] = ()
+    toolchain_snapshot: ToolchainSnapshot | None = None
 
     @property
     def task_count(self) -> int:
