@@ -38,6 +38,7 @@ from moldock.results import (
     VinaResultInterpreter,
 )
 from moldock.storage import FilesystemArtifactStore
+from moldock.toolchain import ExecutableInfo, ToolchainSnapshot
 
 
 T0 = datetime(2026, 9, 26, 0, 30, tzinfo=timezone.utc)
@@ -362,6 +363,69 @@ def test_new_manifest_does_not_execute_obsolete_tasks_from_same_experiment(tmp_p
         assert len(
             tasks.attempts_for(second.task_ids[0], "run_2")
         ) == 1
+    finally:
+        prepared.close()
+        tasks.close()
+        artifacts.close()
+        science.close()
+
+
+class RecordingPreflight:
+    def __init__(self):
+        self.calls = []
+        executable = ExecutableInfo(
+            name="test",
+            executable="test",
+            resolved_path="/test",
+            version="1",
+        )
+        self.snapshot = ToolchainSnapshot(
+            vina=executable,
+            meeko_ligand=executable,
+            meeko_receptor=executable,
+        )
+
+    def inspect(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.snapshot
+
+
+def test_pipeline_runs_toolchain_preflight_before_preparation(tmp_path):
+    store, prepared, tasks, artifacts, science = make_stack(tmp_path)
+    receptor_preparer = FakeReceptorPreparer()
+    ligand_preparer = FakeLigandPreparer()
+    preflight = RecordingPreflight()
+    pipeline = OfflineDockingPipeline(
+        receptor_preparer=receptor_preparer,
+        ligand_preparer=ligand_preparer,
+        prepared_inputs=prepared,
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=store,
+        backend=VinaLikeBackend(),
+        clock=lambda: T0,
+        toolchain_preflight=preflight,
+    )
+
+    try:
+        result = pipeline.run(make_spec())
+
+        assert result.toolchain_snapshot == preflight.snapshot
+        assert preflight.calls == [
+            {
+                "expected_backend": "vina",
+                "expected_vina_version": "1.2.7",
+                "expected_ligand_method": "fake-ligand",
+                "expected_ligand_version": "1",
+                "expected_receptor_method": "fake-receptor",
+                "expected_receptor_version": "1",
+                "vina_executable": None,
+                "ligand_executable": None,
+                "receptor_executable": None,
+            }
+        ]
+        assert receptor_preparer.calls == 1
+        assert ligand_preparer.calls == 1
     finally:
         prepared.close()
         tasks.close()

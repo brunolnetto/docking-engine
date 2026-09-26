@@ -26,6 +26,10 @@ from moldock.repositories import (
 )
 from moldock.results import ScientificResultInterpreter
 from moldock.storage import ArtifactStore
+from moldock.toolchain import (
+    ToolchainPreflight,
+    ToolchainSnapshot,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +76,7 @@ class PipelineRunResult:
     prepared_receptor_id: str
     prepared_ligand_ids: tuple[str, ...]
     task_ids: tuple[str, ...]
+    toolchain_snapshot: ToolchainSnapshot | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -112,6 +117,7 @@ class OfflineDockingPipeline:
         backend: DockingBackend,
         clock: Callable[[], datetime],
         result_interpreter: ScientificResultInterpreter | None = None,
+        toolchain_preflight: ToolchainPreflight | None = None,
     ) -> None:
         self._receptor_preparer = receptor_preparer
         self._ligand_preparer = ligand_preparer
@@ -122,8 +128,45 @@ class OfflineDockingPipeline:
         self._backend = backend
         self._clock = clock
         self._interpreter = result_interpreter
+        self._toolchain_preflight = toolchain_preflight
 
     def run(self, spec: OfflineDockingSpec) -> PipelineRunResult:
+        toolchain_snapshot = None
+        if self._toolchain_preflight is not None:
+            toolchain_snapshot = self._toolchain_preflight.inspect(
+                expected_backend=spec.docking_protocol.backend,
+                expected_vina_version=(
+                    spec.docking_protocol.backend_version
+                ),
+                expected_ligand_method=(
+                    spec.ligand_requests[0].protocol.method
+                ),
+                expected_ligand_version=(
+                    spec.ligand_requests[0].protocol.method_version
+                ),
+                expected_receptor_method=(
+                    spec.receptor_request.protocol.method
+                ),
+                expected_receptor_version=(
+                    spec.receptor_request.protocol.method_version
+                ),
+                vina_executable=getattr(
+                    self._backend,
+                    "executable",
+                    None,
+                ),
+                ligand_executable=getattr(
+                    self._ligand_preparer,
+                    "executable",
+                    None,
+                ),
+                receptor_executable=getattr(
+                    self._receptor_preparer,
+                    "executable",
+                    None,
+                ),
+            )
+
         receptor_artifact = self._receptor_preparer.prepare(
             spec.receptor_request
         )
@@ -232,6 +275,7 @@ class OfflineDockingPipeline:
             task_ids=tuple(
                 task.task_id for task in manifest.tasks
             ),
+            toolchain_snapshot=toolchain_snapshot,
         )
 
     @staticmethod
