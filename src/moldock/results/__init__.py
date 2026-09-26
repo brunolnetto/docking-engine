@@ -5,6 +5,14 @@ from .analysis import (
     direct_rmsd,
 )
 from .ducklake_repository import DuckLakeScientificResultRepository
+from .interactions import (
+    PdbqtAtom,
+    PdbqtInteractionParser,
+    PdbqtPoseInteractionAnalyzer,
+    PoseInteractionAnalyzer,
+    atom_distance,
+    donor_angle,
+)
 from .interpreter import (
     NullScientificResultInterpreter,
     ScientificResultInterpreter,
@@ -34,4 +42,10 @@ __all__ = [
     "PdbqtPoseGeometryParser",
     "PoseScientificAnalyzer",
     "direct_rmsd",
+    "PdbqtAtom",
+    "PdbqtInteractionParser",
+    "PoseInteractionAnalyzer",
+    "PdbqtPoseInteractionAnalyzer",
+    "atom_distance",
+    "donor_angle",
 ]
