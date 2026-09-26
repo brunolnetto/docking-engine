@@ -97,6 +97,7 @@ class TaskExecutor:
                 self._interpreter.interpret(
                     task_id=task.task_id,
                     artifact=artifact,
+                    request=request,
                 )
             except Exception as exc:
                 raise _wrap_failure(FailureKind.INTERPRETATION, exc) from exc
