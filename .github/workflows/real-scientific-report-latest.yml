@@ -1,0 +1,61 @@
+name: Real Scientific Report Latest
+
+on:
+  push:
+    branches:
+      - automation/real-scientific-report-latest
+
+permissions:
+  contents: read
+
+jobs:
+  real-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Generate real report
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/latest-report \
+            --run-id 1iep-scientific-latest \
+            --pdf
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".moldock/latest-report/reports")
+          payload = json.loads(
+              (root / "1iep-scientific-latest.json").read_text()
+          )
+          task = payload["tasks"][0]
+          by_kind = {}
+          for interaction in task.get("interactions", []):
+              by_kind[interaction["kind"]] = by_kind.get(interaction["kind"], 0) + 1
+          print("pose_count=", payload["pose_count"])
+          print("score_count=", payload["score_count"])
+          print("metric_count=", len(task.get("metrics", [])))
+          print("cluster_count=", len(task.get("clusters", [])))
+          print("interaction_counts=", by_kind)
+          print("report_pdf=", root / "1iep-scientific-latest.pdf")
+          PY
+
+      - name: Upload report bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-scientific-latest
+          path: .moldock/latest-report/reports/
+          retention-days: 7
