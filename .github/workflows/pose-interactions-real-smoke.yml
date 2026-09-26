@@ -1,0 +1,61 @@
+name: Pose Interactions Real Smoke
+
+on:
+  push:
+    branches:
+      - automation/pose-interactions-real-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  interaction-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real docking toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Run real 1IEP experiment with interaction profiling
+        env:
+          MOLDOCK_RUN_REAL_E2E: "1"
+        run: |
+          python -m pytest tests/integration/test_real_vina_e2e.py -vv -s
+          python examples/real_vina_report.py \
+            --workspace .moldock/interactions \
+            --run-id 1iep-interactions-v1 \
+            --pdf
+
+      - name: Inspect interaction payload
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path(".moldock/interactions/reports/1iep-interactions-v1.json")
+          payload = json.loads(p.read_text())
+          interactions = payload["tasks"][0]["interactions"]
+          assert interactions, "expected durable protein-ligand interactions"
+          kinds = sorted({item["kind"] for item in interactions})
+          print("interaction_count=", len(interactions))
+          print("interaction_kinds=", kinds)
+          print("first_interactions=")
+          for item in interactions[:20]:
+              print(item)
+          PY
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-interactions-v1
+          path: .moldock/interactions/reports/
+          retention-days: 7
