@@ -496,7 +496,12 @@ class PdbqtPoseInteractionAnalyzer:
             if not heavy.is_polar_heavy:
                 continue
             for hydrogen in hydrogens:
-                if atom_distance(heavy, hydrogen) <= self.DONOR_H_MAX:
+                if (
+                    heavy.chain_id == hydrogen.chain_id
+                    and heavy.residue_name == hydrogen.residue_name
+                    and heavy.residue_number == hydrogen.residue_number
+                    and atom_distance(heavy, hydrogen) <= self.DONOR_H_MAX
+                ):
                     donors.append((heavy, hydrogen))
         return tuple(donors)
 
