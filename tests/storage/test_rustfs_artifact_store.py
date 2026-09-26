@@ -9,6 +9,7 @@ import pytest
 
 from moldock.domain import DomainValidationError
 from moldock.storage import ArtifactStore, RustFSArtifactStore
+import moldock.storage.rustfs as rustfs_module
 
 
 class ClientError(Exception):
@@ -227,3 +228,103 @@ def test_concurrent_identical_writers_converge_without_conditional_put():
     assert len(client.objects) == 1
     key = expected_key(b"same-content")
     assert client.objects[("moldock", key)]["Body"] == b"same-content"
+
+
+
+def test_constructor_requires_endpoint_without_injected_client():
+    with pytest.raises(DomainValidationError, match="endpoint_url"):
+        RustFSArtifactStore(bucket="moldock")
+
+
+@pytest.mark.parametrize(
+    "blob_id",
+    ["blob_short", "blob_" + "A" * 64, "not-a-blob"],
+)
+def test_rustfs_get_rejects_malformed_blob_ids(blob_id):
+    with pytest.raises(DomainValidationError, match="invalid blob id"):
+        make_store().get(blob_id)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "s3://moldock/artifacts/sha256/aa/extra/" + "a" * 64,
+        "s3://moldock/artifacts/sha256/aa/" + "g" * 64,
+        "s3://moldock/artifacts/sha256/bb/" + "a" * 64,
+    ],
+)
+def test_rustfs_read_rejects_malformed_content_addressed_uri(uri):
+    with pytest.raises(DomainValidationError, match="unsupported RustFS artifact URI"):
+        make_store().read(uri)
+
+
+def test_rustfs_propagates_non_not_found_client_errors():
+    class ExplodingClient(FakeRustFSClient):
+        def get_object(self, *, Bucket, Key):
+            raise RuntimeError("service unavailable")
+
+    with pytest.raises(RuntimeError, match="service unavailable"):
+        make_store(ExplodingClient()).get("blob_" + "a" * 64)
+
+
+def test_rustfs_verify_coerces_non_bytes_body():
+    class Body:
+        def read(self):
+            return bytearray(b"payload")
+
+    digest = hashlib.sha256(b"payload").hexdigest()
+    response = {
+        "Body": Body(),
+        "Metadata": {
+            "sha256": digest,
+            "size_bytes": str(len(b"payload")),
+        },
+        "ContentLength": len(b"payload"),
+    }
+
+    assert RustFSArtifactStore._verify_response(
+        make_store(),
+        key="artifacts/key",
+        response=response,
+        expected_digest=digest,
+        expected_size=len(b"payload"),
+    ) == b"payload"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("plain"),
+        type("BadResponseError", (Exception,), {"response": "bad"})(),
+        type(
+            "BadPayloadError",
+            (Exception,),
+            {"response": {"Error": "bad"}},
+        )(),
+    ],
+)
+def test_rustfs_error_code_parser_rejects_malformed_errors(error):
+    assert RustFSArtifactStore._is_error_code(error, {"NoSuchKey"}) is False
+
+
+def test_create_client_omits_optional_credentials_when_absent(monkeypatch):
+    captured = {}
+
+    def fake_client(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    import boto3
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+
+    result = RustFSArtifactStore._create_client(
+        endpoint_url="http://localhost:9000",
+        access_key_id=None,
+        secret_access_key=None,
+        region_name="us-east-1",
+    )
+
+    assert result is not None
+    assert "aws_access_key_id" not in captured
+    assert "aws_secret_access_key" not in captured
