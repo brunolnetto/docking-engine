@@ -1,3 +1,5 @@
+import pytest
+
 from moldock.domain import FailureKind, TaskStatus
 from moldock.reporting import (
     PipelineReport,
@@ -77,7 +79,7 @@ def test_scientific_report_builds_experiment_story_from_vina_results():
     assert "5 scored pose(s)" in report.narrative.outcome
     assert report.score_min == -13.286
     assert report.score_max == -10.718
-    assert report.score_spread == 2.568
+    assert report.score_spread == pytest.approx(2.568)
     assert report.poses[0].rank == 1
     assert report.poses[0].score_value == -13.286
     assert any("rank 1 was -13.286 kcal/mol" in item for item in report.narrative.interpretation)
