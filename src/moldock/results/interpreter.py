@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from moldock.domain import ArtifactMetadata
+from moldock.domain import ArtifactMetadata, DockingExecutionRequest
 from moldock.storage import ArtifactStore
 
 from .analysis import PoseScientificAnalyzer
+from .interactions import PoseInteractionAnalyzer
 from .parser import VinaResultParser
 from .repository import ScientificResultRepository
 
@@ -17,6 +18,7 @@ class ScientificResultInterpreter(Protocol):
         *,
         task_id: str,
         artifact: ArtifactMetadata,
+        request: DockingExecutionRequest | None = None,
     ) -> None: ...
 
 
@@ -26,6 +28,7 @@ class NullScientificResultInterpreter:
         *,
         task_id: str,
         artifact: ArtifactMetadata,
+        request: DockingExecutionRequest | None = None,
     ) -> None:
         return None
 
@@ -39,6 +42,7 @@ class VinaResultInterpreter:
         method_version: str,
         parser: VinaResultParser | None = None,
         analyzer: PoseScientificAnalyzer | None = None,
+        interaction_analyzer: PoseInteractionAnalyzer | None = None,
     ) -> None:
         self._store = artifact_store
         self._repository = repository
@@ -47,12 +51,17 @@ class VinaResultInterpreter:
         self._analyzer = analyzer or PoseScientificAnalyzer(
             repository=repository
         )
+        self._interaction_analyzer = (
+            interaction_analyzer
+            or PoseInteractionAnalyzer(repository=repository)
+        )
 
     def interpret(
         self,
         *,
         task_id: str,
         artifact: ArtifactMetadata,
+        request: DockingExecutionRequest | None = None,
     ) -> None:
         if artifact.kind != "docking_pose":
             return
@@ -77,3 +86,9 @@ class VinaResultInterpreter:
             attempt_id=artifact.producer_attempt_id,
             content=content,
         )
+        if request is not None:
+            self._interaction_analyzer.analyze(
+                attempt_id=artifact.producer_attempt_id,
+                receptor_pdbqt=request.receptor_pdbqt,
+                pose_pdbqt=content,
+            )
