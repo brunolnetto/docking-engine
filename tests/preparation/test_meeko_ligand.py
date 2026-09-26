@@ -233,3 +233,64 @@ def test_meeko_ligand_preparer_rejects_non_positive_timeout():
             method_version="0.8.0",
             execution_timeout=timedelta(0),
         )
+
+
+def test_meeko_ligand_preparer_allows_dollar_sequence_inside_sdf_property():
+    content = (
+        b"ligand\n"
+        b"  moldock\n\n"
+        b"  0  0  0  0  0  0            999 V2000\n"
+        b"M  END\n"
+        b">  <NOTE>\n"
+        b"value contains $$$$ inline\n\n"
+        b"$$$$\n"
+    )
+    preparer = MeekoLigandPreparer(
+        method_version="0.8.0",
+        runner=RecordingRunner(),
+    )
+
+    artifacts = preparer.prepare(make_request(content=content))
+
+    assert len(artifacts) == 1
+
+
+def test_meeko_ligand_preparer_rejects_multimolecule_mol2():
+    molecule = (
+        b"@<TRIPOS>MOLECULE\n"
+        b"ligand\n"
+        b"0 0 0 0 0\n"
+    )
+    preparer = MeekoLigandPreparer(
+        method_version="0.8.0",
+        runner=RecordingRunner(),
+    )
+
+    with pytest.raises(DomainValidationError, match="single molecule"):
+        preparer.prepare(
+            make_request(
+                source_format="mol2",
+                content=molecule + molecule,
+            )
+        )
+
+
+def test_meeko_ligand_preparer_keeps_legacy_runner_signature_without_timeout():
+    calls = []
+
+    class LegacyRunner:
+        def __call__(self, command, *, cwd):
+            calls.append((tuple(command), Path(cwd)))
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_bytes(b"ROOT\nENDROOT\n")
+            return CompletedProcess(command, 0, "ok", "")
+
+    preparer = MeekoLigandPreparer(
+        method_version="0.8.0",
+        runner=LegacyRunner(),
+    )
+
+    artifact = preparer.prepare(make_request())[0]
+
+    assert artifact.pdbqt == b"ROOT\nENDROOT\n"
+    assert len(calls) == 1
