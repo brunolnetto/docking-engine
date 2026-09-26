@@ -590,6 +590,48 @@ class ReportLabPipelineReporter:
                 ]
             )
 
+        interaction_rows = [
+            [
+                "Rank",
+                "H-bonds",
+                "Hydrophobic",
+                "H-bond residues",
+                "Hydrophobic residues",
+            ]
+        ]
+        for pose in scientific.poses:
+            if not (
+                pose.hydrogen_bond_count
+                or pose.hydrophobic_contact_count
+            ):
+                continue
+            interaction_rows.append(
+                [
+                    pose.rank if pose.rank is not None else "—",
+                    pose.hydrogen_bond_count,
+                    pose.hydrophobic_contact_count,
+                    ", ".join(pose.hydrogen_bond_residues) or "—",
+                    ", ".join(pose.hydrophobic_residues) or "—",
+                ]
+            )
+        if len(interaction_rows) > 1:
+            story.extend(
+                [
+                    paragraph("Protein–ligand interaction profile", "DockingH2"),
+                    striped_table(
+                        interaction_rows,
+                        [
+                            14 * mm,
+                            20 * mm,
+                            24 * mm,
+                            58 * mm,
+                            58 * mm,
+                        ],
+                        right_columns=(0, 1, 2),
+                    ),
+                ]
+            )
+
         story.extend(
             [
                 paragraph("Interpretation", "DockingH2"),
