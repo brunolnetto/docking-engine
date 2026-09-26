@@ -21,6 +21,12 @@ class ScientificPoseResult:
     rmsd_to_rank1: float | None = None
     ligand_efficiency: float | None = None
     cluster_id: str | None = None
+    contact_count: int = 0
+    hydrophobic_contact_count: int = 0
+    hydrogen_bond_count: int = 0
+    contact_residues: tuple[str, ...] = ()
+    hydrophobic_residues: tuple[str, ...] = ()
+    hydrogen_bond_residues: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,10 +105,29 @@ class ScientificReportBuilder:
                 for item in task.clusters
                 if item.method == "rank_ordered_leader_rmsd"
             }
+            interactions_by_pose: dict[str, list] = {}
+            for interaction in task.interactions:
+                interactions_by_pose.setdefault(
+                    interaction.pose_id,
+                    [],
+                ).append(interaction)
             for score in task.scores:
                 if not isfinite(score.value):
                     continue
                 pose_metrics = metrics_by_pose.get(score.pose_id, {})
+                interactions = interactions_by_pose.get(score.pose_id, [])
+                contacts = [
+                    item for item in interactions
+                    if item.kind == "contact"
+                ]
+                hydrophobic = [
+                    item for item in interactions
+                    if item.kind == "hydrophobic_contact"
+                ]
+                hydrogen_bonds = [
+                    item for item in interactions
+                    if item.kind == "hydrogen_bond"
+                ]
                 rows.append(
                     ScientificPoseResult(
                         ligand_id=task.ligand_id,
@@ -118,6 +143,28 @@ class ScientificReportBuilder:
                             "ligand_efficiency"
                         ),
                         cluster_id=clusters_by_pose.get(score.pose_id),
+                        contact_count=len(contacts),
+                        hydrophobic_contact_count=len(hydrophobic),
+                        hydrogen_bond_count=len(hydrogen_bonds),
+                        contact_residues=tuple(
+                            sorted({item.residue_label for item in contacts})
+                        ),
+                        hydrophobic_residues=tuple(
+                            sorted(
+                                {
+                                    item.residue_label
+                                    for item in hydrophobic
+                                }
+                            )
+                        ),
+                        hydrogen_bond_residues=tuple(
+                            sorted(
+                                {
+                                    item.residue_label
+                                    for item in hydrogen_bonds
+                                }
+                            )
+                        ),
                     )
                 )
 
@@ -335,19 +382,63 @@ class ScientificReportBuilder:
                     "ligand efficiency measurement."
                 )
 
-            limitations.append(
-                "Protein-ligand contact chemistry is not yet included: "
-                "hydrogen bonds, hydrophobic contacts, salt bridges, and "
-                "residue-level interaction fingerprints remain the next "
-                "analysis layer."
-            )
-            next_steps.extend(
-                [
-                    "Inspect the leading RMSD cluster structurally in the binding site.",
-                    "Characterize protein-ligand contacts for the leading pose families.",
-                    "Add chemistry-aware hydrogen-bond and hydrophobic-contact profiling.",
-                ]
-            )
+            interaction_poses = [
+                pose
+                for pose in poses
+                if (
+                    pose.contact_count
+                    or pose.hydrophobic_contact_count
+                    or pose.hydrogen_bond_count
+                )
+            ]
+            if interaction_poses:
+                top = next(
+                    (
+                        pose
+                        for pose in interaction_poses
+                        if pose.rank == 1
+                    ),
+                    interaction_poses[0],
+                )
+                interpretation.append(
+                    f"Rank 1 has {top.contact_count} heavy-atom proximity "
+                    f"contact(s), {top.hydrophobic_contact_count} "
+                    f"hydrophobic contact(s), and "
+                    f"{top.hydrogen_bond_count} geometry-qualified hydrogen "
+                    "bond(s)."
+                )
+                if top.hydrogen_bond_residues:
+                    interpretation.append(
+                        "Rank-1 hydrogen-bond residues: "
+                        + ", ".join(top.hydrogen_bond_residues)
+                        + "."
+                    )
+                if top.hydrophobic_residues:
+                    interpretation.append(
+                        "Rank-1 hydrophobic-contact residues: "
+                        + ", ".join(top.hydrophobic_residues)
+                        + "."
+                    )
+                limitations.append(
+                    "Interaction assignments use deterministic PDBQT geometry "
+                    "and AutoDock atom types; they are not a substitute for "
+                    "a full chemistry-perception package or experimental "
+                    "interaction evidence."
+                )
+                next_steps.extend(
+                    [
+                        "Compare interaction fingerprints across the leading RMSD cluster.",
+                        "Inspect whether rank-1 hydrogen bonds and hydrophobic contacts are chemically plausible in 3D.",
+                        "Add salt-bridge and aromatic interaction perception as separate typed interaction families.",
+                    ]
+                )
+            else:
+                limitations.append(
+                    "No durable receptor-ligand interaction observations were available."
+                )
+                next_steps.append(
+                    "Characterize protein-ligand contacts for the leading pose families."
+                )
         if report.failed_count:
             conclusion = (
                 "No scientific docking conclusion should be drawn until the "
