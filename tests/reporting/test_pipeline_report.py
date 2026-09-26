@@ -185,6 +185,12 @@ def test_report_can_be_rebuilt_from_durable_run_manifest():
         prepared_ligand_ids=("plig_1",),
         task_ids=(task.task_id,),
         toolchain_snapshot=toolchain_snapshot(),
+        experiment_configuration={
+            "docking_protocol": {
+                "backend": "vina",
+                "backend_version": "1.2.7",
+            }
+        },
     )
 
     report = PipelineReportBuilder(
@@ -201,6 +207,7 @@ def test_report_can_be_rebuilt_from_durable_run_manifest():
     assert report.receptor_source_sha256 == "a" * 64
     assert report.ligand_sources == (("lig_1", "b" * 64),)
     assert report.toolchain_snapshot == toolchain_snapshot()
+    assert report.experiment_configuration["docking_protocol"]["backend"] == "vina"
 
 
 def test_build_for_run_rejects_unknown_run():
