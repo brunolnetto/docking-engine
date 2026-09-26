@@ -1,0 +1,64 @@
+name: Interaction Profile Real Smoke
+
+on:
+  push:
+    branches:
+      - automation/interaction-profile-real-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  interaction-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+      - name: Run real pipeline with interaction profiling
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/interactions \
+            --run-id 1iep-interactions \
+            --pdf
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path(".moldock/interactions/reports/1iep-interactions.json")
+          payload = json.loads(path.read_text())
+          interactions = payload["tasks"][0]["interactions"]
+          kinds = {}
+          residues = {}
+          for item in interactions:
+              kinds[item["kind"]] = kinds.get(item["kind"], 0) + 1
+              residues[item["receptor_residue"]] = residues.get(item["receptor_residue"], 0) + 1
+          print("interaction_count", len(interactions))
+          print("kinds", json.dumps(kinds, sort_keys=True))
+          print("top_residues", sorted(residues.items(), key=lambda x: (-x[1], x[0]))[:20])
+          assert kinds.get("residue_contact", 0) > 0
+          assert kinds.get("hydrophobic_contact", 0) > 0
+          assert kinds.get("hydrogen_bond", 0) > 0
+          PY
+      - name: Run interaction and reporting tests
+        run: |
+          python -m pytest \
+            tests/domain/test_interaction_domain.py \
+            tests/results/test_interaction_profiling.py \
+            tests/results/test_repository.py \
+            tests/results/test_ducklake_scientific_repository.py \
+            tests/reporting -q
+      - name: Upload generated report
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-interaction-profile
+          path: .moldock/interactions/reports/
+          retention-days: 7
