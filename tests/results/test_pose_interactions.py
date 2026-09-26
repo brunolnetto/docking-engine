@@ -65,7 +65,11 @@ class PreparedInputs:
         self.binding = binding
 
     def get_receptor(self, prepared_receptor_id):
-        if prepared_receptor_id == self.binding.prepared.prepared_receptor_id:
+        if (
+            self.binding is not None
+            and prepared_receptor_id
+            == self.binding.prepared.prepared_receptor_id
+        ):
             return self.binding
         return None
 
