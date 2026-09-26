@@ -10,6 +10,8 @@ from .model import (
 )
 from .pdf import ReportLabPipelineReporter
 from .scientific import (
+    PoseEvidenceSummary,
+    ResidueSupport,
     ScientificExperimentReport,
     ScientificNarrative,
     ScientificPoseResult,
@@ -34,6 +36,8 @@ __all__ = [
     "ReportLabPipelineReporter",
     "RankingObservation",
     "ScoreObservation",
+    "PoseEvidenceSummary",
+    "ResidueSupport",
     "ScientificExperimentReport",
     "ScientificNarrative",
     "ScientificPoseResult",
