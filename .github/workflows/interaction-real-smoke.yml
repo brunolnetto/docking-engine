@@ -1,0 +1,64 @@
+name: Real Interaction Analysis Smoke
+
+on:
+  push:
+    branches:
+      - automation/interaction-real-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  real-interactions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Run real docking and interaction report
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/interactions \
+            --run-id 1iep-interactions \
+            --pdf
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(".moldock/interactions/reports/1iep-interactions.json")
+          payload = json.loads(path.read_text())
+          interactions = payload["tasks"][0]["interactions"]
+          assert interactions, "real run persisted no interactions"
+          kinds = {item["kind"] for item in interactions}
+          assert "contact" in kinds
+          print("interaction_count=", len(interactions))
+          print("interaction_kinds=", sorted(kinds))
+          for kind in sorted(kinds):
+              print(kind, sum(item["kind"] == kind for item in interactions))
+          PY
+
+      - name: Run interaction/reporting tests
+        run: |
+          python -m pytest \
+            tests/results/test_pose_interactions.py \
+            tests/results/test_ducklake_scientific_repository.py \
+            tests/reporting/test_scientific_report.py -q
+
+      - name: Upload real reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-interaction-report
+          path: .moldock/interactions/reports/
+          retention-days: 7
