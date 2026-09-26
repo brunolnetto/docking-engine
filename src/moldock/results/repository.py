@@ -8,6 +8,7 @@ from moldock.domain import (
     DomainValidationError,
     Pose,
     PoseClusterAssignment,
+    PoseInteraction,
     PoseMetric,
     PoseRanking,
     PoseScore,
@@ -20,6 +21,26 @@ class ScientificResultRepository(Protocol):
     def register_score(self, score: PoseScore) -> None: ...
     def register_ranking(self, ranking: PoseRanking) -> None: ...
     def register_metric(self, metric: PoseMetric) -> None: ...
+    def register_interaction(self, interaction: PoseInteraction) -> None: ...
+    def register_interaction(self, interaction: PoseInteraction) -> None:
+        with self._lock:
+            if interaction.pose_id not in self._poses:
+                raise DomainValidationError(
+                    "cannot register interaction for unknown pose: "
+                    f"{interaction.pose_id}"
+                )
+            existing = self._interactions.get(interaction.interaction_id)
+            if existing is None:
+                self._interactions[interaction.interaction_id] = interaction
+                self._interaction_ids_by_pose[interaction.pose_id].append(
+                    interaction.interaction_id
+                )
+                return
+            if existing != interaction:
+                raise DomainValidationError(
+                    "interaction identity already exists with conflicting metadata"
+                )
+
     def register_cluster_assignment(
         self,
         assignment: PoseClusterAssignment,
@@ -28,6 +49,22 @@ class ScientificResultRepository(Protocol):
     def list_scores_for_pose(self, pose_id: str) -> tuple[PoseScore, ...]: ...
     def list_rankings_for_pose(self, pose_id: str) -> tuple[PoseRanking, ...]: ...
     def list_metrics_for_pose(self, pose_id: str) -> tuple[PoseMetric, ...]: ...
+    def list_interactions_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseInteraction, ...]: ...
+    def list_interactions_for_pose(
+        self,
+        pose_id: str,
+    ) -> tuple[PoseInteraction, ...]:
+        with self._lock:
+            return tuple(
+                self._interactions[interaction_id]
+                for interaction_id in sorted(
+                    self._interaction_ids_by_pose.get(pose_id, ())
+                )
+            )
+
     def list_cluster_assignments_for_pose(
         self,
         pose_id: str,
@@ -40,11 +77,13 @@ class InMemoryScientificResultRepository:
         self._scores: dict[str, PoseScore] = {}
         self._rankings: dict[str, PoseRanking] = {}
         self._metrics: dict[str, PoseMetric] = {}
+        self._interactions: dict[str, PoseInteraction] = {}
         self._cluster_assignments: dict[str, PoseClusterAssignment] = {}
         self._pose_ids_by_attempt: dict[str, list[str]] = defaultdict(list)
         self._score_ids_by_pose: dict[str, list[str]] = defaultdict(list)
         self._ranking_ids_by_pose: dict[str, list[str]] = defaultdict(list)
         self._metric_ids_by_pose: dict[str, list[str]] = defaultdict(list)
+        self._interaction_ids_by_pose: dict[str, list[str]] = defaultdict(list)
         self._cluster_ids_by_pose: dict[str, list[str]] = defaultdict(list)
         self._lock = RLock()
 
