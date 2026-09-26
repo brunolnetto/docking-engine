@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, Mapping
 
 from moldock.domain import FailureKind, TaskStatus
 from moldock.toolchain import ToolchainSnapshot
@@ -116,6 +117,7 @@ class PipelineReport:
     receptor_source_sha256: str | None = None
     ligand_sources: tuple[tuple[str, str], ...] = ()
     toolchain_snapshot: ToolchainSnapshot | None = None
+    experiment_configuration: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def task_count(self) -> int:
