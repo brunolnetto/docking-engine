@@ -6,6 +6,7 @@ from moldock.domain import ArtifactMetadata
 from moldock.storage import ArtifactStore
 
 from .analysis import PoseScientificAnalyzer
+from .interactions import PoseInteractionAnalyzer
 from .parser import VinaResultParser
 from .repository import ScientificResultRepository
 
@@ -39,6 +40,7 @@ class VinaResultInterpreter:
         method_version: str,
         parser: VinaResultParser | None = None,
         analyzer: PoseScientificAnalyzer | None = None,
+        interaction_analyzer: PoseInteractionAnalyzer | None = None,
     ) -> None:
         self._store = artifact_store
         self._repository = repository
@@ -47,6 +49,7 @@ class VinaResultInterpreter:
         self._analyzer = analyzer or PoseScientificAnalyzer(
             repository=repository
         )
+        self._interaction_analyzer = interaction_analyzer
 
     def interpret(
         self,
@@ -77,3 +80,9 @@ class VinaResultInterpreter:
             attempt_id=artifact.producer_attempt_id,
             content=content,
         )
+        if self._interaction_analyzer is not None:
+            self._interaction_analyzer.analyze(
+                task_id=task_id,
+                attempt_id=artifact.producer_attempt_id,
+                pose_content=content,
+            )
