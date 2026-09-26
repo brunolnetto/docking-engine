@@ -1,3 +1,4 @@
+from io import BytesIO
 import json
 
 import pytest
@@ -21,10 +22,16 @@ from moldock.repositories import (
 from moldock.reporting import (
     JsonPipelineReporter,
     MarkdownPipelineReporter,
+    PipelineReport,
     PipelineReportBuilder,
     PipelineReporter,
+    RankingObservation,
+    ReportLabPipelineReporter,
+    ScoreObservation,
+    TaskPipelineReport,
     TextPipelineReporter,
 )
+from moldock.reporting.pdf import _score_value
 from moldock.results import InMemoryScientificResultRepository
 from moldock.toolchain import ExecutableInfo, ToolchainSnapshot
 
@@ -268,3 +275,108 @@ def test_markdown_report_contains_provenance_summary_and_score_table():
     assert manifest.run_manifest_id in markdown
     assert payload["provenance"]["run_manifest_id"] == manifest.run_manifest_id
     assert payload["provenance"]["toolchain"]["vina"]["version"] == "1.2.7"
+
+
+def test_reportlab_pdf_is_deterministic_and_writable(tmp_path):
+    tasks = InMemoryTaskRepository()
+    artifacts = InMemoryArtifactRepository()
+    science = InMemoryScientificResultRepository()
+    task = DockingTask(
+        experiment_id="exp_1",
+        receptor_id="rec_1",
+        ligand_id="lig_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_id="plig_1",
+        search_space_id="space_1",
+    )
+    tasks.register(task)
+    manifest = RunManifest(
+        run_id="run_1",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        task_manifest_id="manifest_1",
+        search_space_id="space_1",
+        receptor_id="rec_1",
+        receptor_source_sha256="a" * 64,
+        ligand_sources=(("lig_1", "b" * 64),),
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        task_ids=(task.task_id,),
+        toolchain_snapshot=toolchain_snapshot(),
+    )
+    report = PipelineReportBuilder(
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        scientific_result_repository=science,
+    ).build_from_manifest(manifest)
+
+    reporter = ReportLabPipelineReporter()
+    first = reporter.render(report)
+    second = reporter.render(report)
+
+    assert first.startswith(b"%PDF-")
+    assert first == second
+    assert len(first) > 1_000
+
+    output = tmp_path / "report.pdf"
+    assert reporter.write(report, output) == output
+    assert output.read_bytes() == first
+
+    stream = BytesIO()
+    assert reporter.write(report, stream) is stream
+    assert stream.getvalue() == first
+
+
+def test_reportlab_pdf_keeps_full_diagnostics_and_score_precision():
+    value = -11.264123456789
+    task = TaskPipelineReport(
+        task_id="task_failed",
+        ligand_id="lig_1",
+        status=TaskStatus.FAILED,
+        attempt_count=1,
+        final_attempt_id="attempt_1",
+        failure_kind=FailureKind.BACKEND,
+        error=("vina stderr diagnostic line\n" * 250),
+        artifact_ids=("artifact_1",),
+        pose_ids=("pose_1",),
+        scores=(
+            ScoreObservation(
+                score_id="score_1",
+                pose_id="pose_1",
+                kind="vina_affinity",
+                value=value,
+                unit="kcal/mol",
+                method="vina",
+                method_version="1.2.7",
+            ),
+        ),
+        rankings=(
+            RankingObservation(
+                ranking_id="ranking_1",
+                pose_id="pose_1",
+                rank=1,
+                method="vina_affinity",
+            ),
+        ),
+    )
+    report = PipelineReport(
+        run_id="run_failed",
+        experiment_id="exp_1",
+        protocol_id="protocol_1",
+        manifest_id="manifest_1",
+        prepared_receptor_id="prec_1",
+        prepared_ligand_ids=("plig_1",),
+        tasks=(task,),
+        run_manifest_id="run_manifest_1",
+        search_space_id="space_1",
+        receptor_id="rec_1",
+        receptor_source_sha256="a" * 64,
+        ligand_sources=(("lig_1", "b" * 64),),
+        toolchain_snapshot=toolchain_snapshot(),
+    )
+
+    pdf = ReportLabPipelineReporter().render(report)
+
+    assert pdf.startswith(b"%PDF-")
+    assert len(pdf) > 5_000
+    assert _score_value(value) == repr(value)

@@ -5,6 +5,7 @@ from .model import (
     ScoreObservation,
     TaskPipelineReport,
 )
+from .pdf import ReportLabPipelineReporter
 from .renderers import (
     JsonPipelineReporter,
     MarkdownPipelineReporter,
@@ -18,6 +19,7 @@ __all__ = [
     "PipelineReport",
     "PipelineReportBuilder",
     "PipelineReporter",
+    "ReportLabPipelineReporter",
     "RankingObservation",
     "ScoreObservation",
     "TaskPipelineReport",
