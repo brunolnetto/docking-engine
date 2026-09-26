@@ -16,6 +16,7 @@ dev = [
     "pytz>=2024.1",
     "pytest>=8.0",
     "pytest-cov>=6.0",
+    "reportlab>=4.2,<5",
 ]
 ducklake = [
     "duckdb>=1.5.5,<1.6",
@@ -23,6 +24,9 @@ ducklake = [
 ]
 meeko = [
     "meeko>=0.8,<0.9",
+]
+pdf = [
+    "reportlab>=4.2,<5",
 ]
 rustfs = [
     "boto3>=1.35,<2",
