@@ -5,6 +5,8 @@ from moldock.domain import (
     DomainValidationError,
     Pose,
     PoseClusterAssignment,
+    PoseInteraction,
+    PoseInteractionKind,
     PoseMetric,
     PoseMetricKind,
     PoseRanking,
@@ -77,6 +79,21 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         method="pdbqt_atom_order_direct_rmsd",
         method_version="1",
     )
+    interaction = PoseInteraction(
+        pose_id=pose.pose_id,
+        kind=PoseInteractionKind.HYDROGEN_BOND,
+        receptor_atom_serial=10,
+        receptor_atom_name="NZ",
+        receptor_residue_name="LYS",
+        receptor_chain="A",
+        receptor_residue_number="10",
+        ligand_atom_serial=1,
+        ligand_atom_name="O1",
+        distance_angstrom=2.8,
+        method="pdbqt_geometric_interactions",
+        method_version="1",
+        metadata={"angle_degrees": 165.0},
+    )
     cluster = PoseClusterAssignment(
         pose_id=pose.pose_id,
         cluster_id="cluster_1",
@@ -89,6 +106,7 @@ def test_scientific_results_survive_repository_restart(tmp_path):
     repo.register_score(score)
     repo.register_ranking(ranking)
     repo.register_metric(metric)
+    repo.register_interaction(interaction)
     repo.register_cluster_assignment(cluster)
     repo.close()
 
@@ -98,6 +116,9 @@ def test_scientific_results_survive_repository_restart(tmp_path):
         assert reopened.list_scores_for_pose(pose.pose_id) == (score,)
         assert reopened.list_rankings_for_pose(pose.pose_id) == (ranking,)
         assert reopened.list_metrics_for_pose(pose.pose_id) == (metric,)
+        assert reopened.list_interactions_for_pose(pose.pose_id) == (
+            interaction,
+        )
         assert reopened.list_cluster_assignments_for_pose(
             pose.pose_id
         ) == (cluster,)
@@ -136,6 +157,24 @@ def test_score_and_ranking_require_known_pose(tmp_path):
     try:
         with pytest.raises(DomainValidationError, match="unknown pose"):
             repo.register_score(make_score("missing"))
+
+        with pytest.raises(DomainValidationError, match="unknown pose"):
+            repo.register_interaction(
+                PoseInteraction(
+                    pose_id="missing",
+                    kind=PoseInteractionKind.CONTACT,
+                    receptor_atom_serial=1,
+                    receptor_atom_name="C",
+                    receptor_residue_name="ALA",
+                    receptor_chain="A",
+                    receptor_residue_number="1",
+                    ligand_atom_serial=1,
+                    ligand_atom_name="C",
+                    distance_angstrom=3.0,
+                    method="test",
+                    method_version="1",
+                )
+            )
 
         with pytest.raises(DomainValidationError, match="unknown pose"):
             repo.register_ranking(
