@@ -31,6 +31,7 @@ class PdbqtAtom:
     y: float
     z: float
     atom_type: str
+    charge: float
 
     @property
     def is_hydrogen(self) -> bool:
@@ -111,6 +112,7 @@ class PdbqtInteractionParser:
                     y=float(text[38:46]),
                     z=float(text[46:54]),
                     atom_type=fields[-1],
+                    charge=float(fields[-2]),
                 )
             except (ValueError, IndexError) as exc:
                 raise DomainValidationError(
@@ -166,6 +168,9 @@ class PoseInteractionAnalyzer:
         hydrogen_bond_ha_cutoff_angstrom: float = 2.5,
         hydrogen_bond_angle_degrees: float = 120.0,
         donor_hydrogen_bond_cutoff_angstrom: float = 1.3,
+        salt_bridge_cutoff_angstrom: float = 5.5,
+        ligand_positive_charge_min: float = 0.35,
+        ligand_negative_charge_max: float = -0.50,
     ) -> None:
         cutoffs = (
             contact_cutoff_angstrom,
@@ -173,6 +178,7 @@ class PoseInteractionAnalyzer:
             hydrogen_bond_da_cutoff_angstrom,
             hydrogen_bond_ha_cutoff_angstrom,
             donor_hydrogen_bond_cutoff_angstrom,
+            salt_bridge_cutoff_angstrom,
         )
         if any(value <= 0 for value in cutoffs):
             raise DomainValidationError(
@@ -190,6 +196,9 @@ class PoseInteractionAnalyzer:
         self._hbond_ha_cutoff = hydrogen_bond_ha_cutoff_angstrom
         self._hbond_angle = hydrogen_bond_angle_degrees
         self._donor_h_cutoff = donor_hydrogen_bond_cutoff_angstrom
+        self._salt_bridge_cutoff = salt_bridge_cutoff_angstrom
+        self._ligand_positive_charge_min = ligand_positive_charge_min
+        self._ligand_negative_charge_max = ligand_negative_charge_max
 
     def analyze(
         self,
@@ -211,6 +220,7 @@ class PoseInteractionAnalyzer:
                 )
             self._persist_contacts(pose, receptor, ligand)
             self._persist_hydrogen_bonds(pose, receptor, ligand)
+            self._persist_salt_bridges(pose, receptor, ligand)
 
     def _persist_contacts(
         self,
@@ -319,6 +329,95 @@ class PoseInteractionAnalyzer:
                         "angle_cutoff_degrees": self._hbond_angle,
                     },
                 )
+
+    def _persist_salt_bridges(
+        self,
+        pose: Pose,
+        receptor: PdbqtStructure,
+        ligand: PdbqtStructure,
+    ) -> None:
+        receptor_charged = tuple(
+            (sign, atom)
+            for atom in receptor.heavy_atoms
+            if (sign := self._protein_charge_sign(atom)) is not None
+        )
+        ligand_charged = tuple(
+            (sign, atom)
+            for atom in ligand.heavy_atoms
+            if (sign := self._ligand_charge_sign(atom)) is not None
+        )
+        nearest_by_residue: dict[
+            tuple[str, str, str],
+            tuple[PdbqtAtom, PdbqtAtom, float, int, float],
+        ] = {}
+        for receptor_sign, receptor_atom in receptor_charged:
+            for ligand_sign, ligand_atom in ligand_charged:
+                if receptor_sign == ligand_sign:
+                    continue
+                distance = _distance(receptor_atom, ligand_atom)
+                if distance > self._salt_bridge_cutoff:
+                    continue
+                key = (
+                    receptor_atom.chain,
+                    receptor_atom.residue_name,
+                    receptor_atom.residue_number,
+                )
+                current = nearest_by_residue.get(key)
+                if current is None or distance < current[2]:
+                    nearest_by_residue[key] = (
+                        receptor_atom,
+                        ligand_atom,
+                        distance,
+                        receptor_sign,
+                        ligand_atom.charge,
+                    )
+
+        for receptor_atom, ligand_atom, distance, receptor_sign, ligand_charge in (
+            nearest_by_residue.values()
+        ):
+            self._register(
+                pose,
+                PoseInteractionKind.SALT_BRIDGE,
+                receptor_atom,
+                ligand_atom,
+                distance,
+                metadata={
+                    "putative": True,
+                    "cutoff_angstrom": self._salt_bridge_cutoff,
+                    "protein_charge_sign": receptor_sign,
+                    "ligand_partial_charge": ligand_charge,
+                    "positive_charge_threshold": self._ligand_positive_charge_min,
+                    "negative_charge_threshold": self._ligand_negative_charge_max,
+                },
+            )
+
+    def _ligand_charge_sign(self, atom: PdbqtAtom) -> int | None:
+        atom_type = atom.atom_type.upper()
+        if (
+            atom_type.startswith("N")
+            and atom.charge >= self._ligand_positive_charge_min
+        ):
+            return 1
+        if (
+            atom_type in {"OA", "SA"}
+            and atom.charge <= self._ligand_negative_charge_max
+        ):
+            return -1
+        return None
+
+    @staticmethod
+    def _protein_charge_sign(atom: PdbqtAtom) -> int | None:
+        residue = atom.residue_name.upper()
+        name = atom.name.upper()
+        if residue == "LYS" and name == "NZ":
+            return 1
+        if residue == "ARG" and name in {"NE", "NH1", "NH2"}:
+            return 1
+        if residue == "ASP" and name in {"OD1", "OD2"}:
+            return -1
+        if residue == "GLU" and name in {"OE1", "OE2"}:
+            return -1
+        return None
 
     def _nearest_heavy_atom(
         self,
