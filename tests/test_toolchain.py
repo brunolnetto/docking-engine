@@ -322,3 +322,11 @@ def test_preflight_rejects_empty_meeko_version():
 
     with pytest.raises(DomainValidationError, match="returned no version"):
         inspect(make_preflight(Runner()))
+
+
+
+def test_default_interpreter_rejects_empty_shebang_command(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("#!   \n")
+
+    assert toolchain_module._default_interpreter_for_executable(str(script)) is None
