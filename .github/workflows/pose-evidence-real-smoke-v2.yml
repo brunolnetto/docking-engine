@@ -1,0 +1,68 @@
+name: Real Pose Evidence Smoke V2
+
+on:
+  push:
+    branches:
+      - automation/pose-evidence-real-smoke-v2
+
+permissions:
+  contents: read
+
+jobs:
+  real-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install project and real toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,pdf]"
+          python -m pip install "meeko==0.8.0" rdkit scipy gemmi
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Run real docking and final evidence report
+        run: |
+          python examples/real_vina_report.py \
+            --workspace .moldock/evidence-v2 \
+            --run-id 1iep-evidence-v2 \
+            --pdf
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".moldock/evidence-v2")
+          payload = json.loads(
+              (root / "reports" / "1iep-evidence-v2.json").read_text()
+          )
+          task = payload["tasks"][0]
+          assert payload["succeeded_count"] == 1
+          assert payload["attempt_count"] == 1
+          assert payload["pose_count"] == 5
+          assert len(task["metrics"]) == 10
+          assert len(task["clusters"]) == 5
+          assert task["interactions"]
+          assert all(score["attempt_id"] for score in task["scores"])
+          print("poses=", payload["pose_count"])
+          print("interactions=", len(task["interactions"]))
+          print("score_attempts=", sorted({s["attempt_id"] for s in task["scores"]}))
+          PY
+
+      - name: Run final reporting tests
+        run: |
+          python -m pytest \
+            tests/reporting/test_scientific_report.py \
+            tests/reporting/test_pipeline_report.py -q
+
+      - name: Upload final real report
+        uses: actions/upload-artifact@v7
+        with:
+          name: 1iep-pose-evidence-report-v2
+          path: .moldock/evidence-v2/reports/
+          retention-days: 7
