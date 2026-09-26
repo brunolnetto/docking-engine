@@ -87,7 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pdf",
         action="store_true",
-        help="also write an auditable ReportLab PDF (requires docking-engine[pdf])",
+        help="also write a scientist-facing ReportLab PDF with a reproducibility appendix",
     )
     return parser.parse_args()
 
