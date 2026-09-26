@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from moldock.domain import (
@@ -14,6 +16,7 @@ from moldock.results import (
     PoseScientificAnalyzer,
     direct_rmsd,
 )
+from moldock.results.analysis import PoseGeometry
 
 
 def atom(serial: int, x: float, y: float, z: float, atom_type: str = "C") -> bytes:
@@ -225,3 +228,92 @@ def test_pose_analyzer_skips_attempt_without_vina_ranking():
 
     assert repo.list_metrics_for_pose(pose.pose_id) == ()
     assert repo.list_cluster_assignments_for_pose(pose.pose_id) == ()
+
+
+
+def test_geometry_parser_rejects_missing_model_blocks():
+    with pytest.raises(DomainValidationError, match="no MODEL"):
+        PdbqtPoseGeometryParser().parse(
+            atom(1, 0.0, 0.0, 0.0)
+        )
+
+
+def test_geometry_parser_rejects_invalid_coordinates():
+    malformed = (
+        b"MODEL 1\n"
+        b"ATOM      1  C   UNL     1         bad     0.0     0.0"
+        b"  1.00  0.00    +0.000 C\n"
+        b"ENDMDL\n"
+    )
+
+    with pytest.raises(DomainValidationError, match="invalid PDBQT coordinates"):
+        PdbqtPoseGeometryParser().parse(malformed)
+
+
+def test_geometry_parser_rejects_nested_model_start():
+    content = (
+        b"MODEL 1\n"
+        + atom(1, 0.0, 0.0, 0.0)
+        + b"MODEL 2\n"
+    )
+
+    with pytest.raises(DomainValidationError, match="unterminated MODEL 1"):
+        PdbqtPoseGeometryParser().parse(content)
+
+
+def test_geometry_parser_ignores_stray_endmdl_and_outside_lines():
+    content = (
+        b"REMARK outside\n"
+        b"ENDMDL\n"
+        b"MODEL 1\n"
+        + atom(1, 0.0, 0.0, 0.0)
+        + b"ENDMDL\n"
+    )
+
+    parsed = PdbqtPoseGeometryParser().parse(content)
+
+    assert len(parsed) == 1
+    assert parsed[0].model_index == 1
+
+
+def test_direct_rmsd_rejects_different_coordinate_counts():
+    left = PoseGeometry(
+        model_index=1,
+        atom_labels=("C:C",),
+        coordinates=((0.0, 0.0, 0.0),),
+    )
+    right = PoseGeometry(
+        model_index=2,
+        atom_labels=("C:C",),
+        coordinates=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    )
+
+    with pytest.raises(DomainValidationError, match="different atom counts"):
+        direct_rmsd(left, right)
+
+
+def test_pose_analyzer_ignores_non_vina_score_kind_from_repository():
+    class Repository(InMemoryScientificResultRepository):
+        def list_scores_for_pose(self, pose_id):
+            return (SimpleNamespace(kind="other"),)
+
+    repo = Repository()
+    persisted = persisted_pose(1)
+    repo.register_pose(persisted)
+    repo.register_ranking(
+        PoseRanking(
+            pose_id=persisted.pose_id,
+            rank=1,
+            method="vina_affinity",
+        )
+    )
+
+    PoseScientificAnalyzer(repository=repo).analyze(
+        attempt_id="attempt_1",
+        content=model(1, 0.0),
+    )
+
+    metrics = repo.list_metrics_for_pose(persisted.pose_id)
+    assert [metric.kind for metric in metrics] == [
+        PoseMetricKind.RMSD_TO_RANK1
+    ]

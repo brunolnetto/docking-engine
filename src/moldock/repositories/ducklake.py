@@ -648,6 +648,8 @@ class DuckLakeTaskRepository:
 
     @staticmethod
     def _is_transaction_conflict(error: Exception) -> bool:
+        if isinstance(error, DomainValidationError):
+            return False
         transaction_error = getattr(duckdb, "TransactionException", None)
         if transaction_error is not None and isinstance(error, transaction_error):
             return True

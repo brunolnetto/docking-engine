@@ -4,6 +4,8 @@ from subprocess import CompletedProcess, TimeoutExpired
 
 import pytest
 
+import moldock.preparation.meeko_receptor as meeko_receptor_module
+
 from moldock.domain import DomainValidationError
 from moldock.preparation import (
     ReceptorPreparationProtocol,
@@ -294,3 +296,98 @@ def test_meeko_receptor_preparer_keeps_legacy_runner_signature_without_timeout()
 
     assert artifact.pdbqt == b"ATOM PDBQT\n"
     assert len(calls) == 1
+
+
+
+def test_meeko_receptor_rejects_blank_method_version():
+    with pytest.raises(ValueError, match="method_version"):
+        MeekoReceptorPreparer(method_version=" ")
+
+
+def test_meeko_receptor_rejects_empty_output_file():
+    class EmptyOutputRunner(RecordingRunner):
+        def __call__(self, command, *, cwd, timeout=None):
+            self.calls.append((tuple(command), Path(cwd), timeout))
+            basename = Path(command[command.index("--output_basename") + 1])
+            Path(str(basename) + ".pdbqt").write_bytes(b"")
+            return CompletedProcess(command, 0, "ok", "")
+
+    preparer = MeekoReceptorPreparer(
+        method_version="0.8.0",
+        runner=EmptyOutputRunner(),
+    )
+
+    with pytest.raises(MeekoReceptorPreparationError, match="empty output"):
+        preparer.prepare(make_request())
+
+
+def test_meeko_receptor_requires_atom_records():
+    content = b"HEADER no atoms\nMODEL        1\nENDMDL\n"
+    preparer = MeekoReceptorPreparer(
+        method_version="0.8.0",
+        runner=RecordingRunner(),
+    )
+
+    with pytest.raises(DomainValidationError, match="at least one ATOM"):
+        preparer.prepare(make_request(content=content))
+
+
+def test_meeko_receptor_blank_chain_is_preserved_as_placeholder():
+    pdb = (
+        b"ATOM      1  N   ALA     1      11.104  13.207  14.099"
+        b"  1.00 20.00           N  \n"
+    )
+    preparer = MeekoReceptorPreparer(
+        method_version="0.8.0",
+        runner=RecordingRunner(),
+    )
+
+    artifact = preparer.prepare(make_request(content=pdb))
+
+    assert artifact.chain_ids == ("_",)
+
+
+def test_meeko_receptor_false_flags_are_not_emitted():
+    runner = RecordingRunner()
+    preparer = MeekoReceptorPreparer(
+        method_version="0.8.0",
+        runner=runner,
+    )
+
+    preparer.prepare(
+        make_request(
+            parameters={
+                "delete_bad_res": False,
+                "compute_charges": False,
+                "forgive_extra_bonds": False,
+            }
+        )
+    )
+
+    command = runner.calls[0][0]
+    assert "--delete_bad_res" not in command
+    assert "--compute_charges" not in command
+    assert "--forgive_extra_bonds" not in command
+
+
+def test_meeko_receptor_default_runner_delegates_to_subprocess(monkeypatch, tmp_path):
+    expected = CompletedProcess(["tool"], 0, "ok", "")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return expected
+
+    monkeypatch.setattr(meeko_receptor_module.subprocess, "run", fake_run)
+
+    result = meeko_receptor_module._default_runner(
+        ["tool"],
+        cwd=tmp_path,
+        timeout=4.0,
+    )
+
+    assert result is expected
+    assert calls[0][0] == ["tool"]
+    assert calls[0][1]["cwd"] == tmp_path
+    assert calls[0][1]["timeout"] == 4.0
+    assert calls[0][1]["check"] is False

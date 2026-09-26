@@ -8,6 +8,9 @@ import duckdb
 
 import pytest
 
+import moldock.domain.task as task_module
+import moldock.repositories.ducklake as ducklake_module
+
 from moldock.domain import DockingTask, DomainValidationError, FailureKind, TaskStatus
 from moldock.repositories import DuckLakeTaskRepository, TaskRepository
 
@@ -420,3 +423,168 @@ def test_ducklake_claim_can_be_restricted_to_allowed_task_ids(tmp_path):
     assert claimed is not None
     assert claimed.task_id == second.task_id
     assert repo.attempts_for(first.task_id, "run_1") == ()
+
+
+
+def test_ducklake_task_repository_rejects_missing_optional_dependency(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(ducklake_module, "duckdb", None)
+
+    with pytest.raises(RuntimeError, match="optional dependency"):
+        DuckLakeTaskRepository(
+            catalog_path=tmp_path / "catalog.sqlite",
+            data_path=tmp_path / "data",
+        )
+
+
+def test_ducklake_task_repository_get_returns_none_for_unknown_task(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        assert repo.get("missing") is None
+    finally:
+        repo.close()
+
+
+def test_ducklake_task_repository_rejects_task_identity_collision(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        task_module,
+        "content_id",
+        lambda prefix, value: f"{prefix}_forced_collision",
+    )
+    first = make_task()
+    second = DockingTask(
+        experiment_id="exp_1",
+        receptor_id="rec_1",
+        ligand_id="lig_2",
+        prepared_receptor_id="prepared_rec_1",
+        prepared_ligand_id="prepared_lig_2",
+        search_space_id="space_1",
+    )
+    assert first.task_id == second.task_id
+    repo = make_repo(tmp_path)
+    try:
+        repo.register(first)
+        with pytest.raises(DomainValidationError, match="conflicting provenance"):
+            repo.register(second)
+    finally:
+        repo.close()
+
+
+def test_ducklake_task_schema_rejects_duplicate_coordination_row(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        repo._connection.execute(
+            """
+            INSERT INTO moldock.claim_coordination
+            VALUES ('task_repository', 99)
+            """
+        )
+
+        with pytest.raises(RuntimeError, match="must be unique"):
+            repo._initialize_schema()
+    finally:
+        repo.close()
+
+
+def test_ducklake_task_close_is_safe_when_connection_absent(tmp_path):
+    repo = make_repo(tmp_path)
+    connection = repo._connection
+    repo._connection = None
+    try:
+        repo.close()
+    finally:
+        connection.close()
+
+
+def test_ducklake_task_reconnect_tolerates_close_failure(monkeypatch):
+    class ClosingFailure:
+        def close(self):
+            raise RuntimeError("close failed")
+
+    repo = object.__new__(DuckLakeTaskRepository)
+    repo._connection = ClosingFailure()
+    attached = []
+    monkeypatch.setattr(repo, "_attach", lambda: attached.append(True))
+
+    repo._reconnect()
+
+    assert repo._connection is None
+    assert attached == [True]
+
+
+def test_ducklake_task_reconnect_when_connection_absent(monkeypatch):
+    repo = object.__new__(DuckLakeTaskRepository)
+    repo._connection = None
+    attached = []
+    monkeypatch.setattr(repo, "_attach", lambda: attached.append(True))
+
+    repo._reconnect()
+
+    assert attached == [True]
+
+
+def test_ducklake_task_attach_propagates_non_conflict(monkeypatch, tmp_path):
+    class BadConnection:
+        closed = False
+
+        def execute(self, query):
+            raise RuntimeError("syntax error")
+
+        def close(self):
+            self.closed = True
+
+    connection = BadConnection()
+    monkeypatch.setattr(
+        ducklake_module.duckdb,
+        "connect",
+        lambda: connection,
+    )
+    repo = object.__new__(DuckLakeTaskRepository)
+    repo._catalog_path = tmp_path / "catalog.sqlite"
+    repo._data_path = tmp_path / "data"
+    repo._max_transaction_retries = 2
+    repo._retry_delay_seconds = 0
+    repo._connection = None
+
+    with pytest.raises(RuntimeError, match="syntax error"):
+        repo._attach()
+
+    assert connection.closed is True
+
+
+def test_ducklake_task_attach_exhausts_retry_budget(monkeypatch, tmp_path):
+    class ConflictConnection:
+        def __init__(self):
+            self.closed = False
+
+        def execute(self, query):
+            raise RuntimeError("database is locked")
+
+        def close(self):
+            self.closed = True
+
+    created = []
+
+    def connect():
+        connection = ConflictConnection()
+        created.append(connection)
+        return connection
+
+    monkeypatch.setattr(ducklake_module.duckdb, "connect", connect)
+    repo = object.__new__(DuckLakeTaskRepository)
+    repo._catalog_path = tmp_path / "catalog.sqlite"
+    repo._data_path = tmp_path / "data"
+    repo._max_transaction_retries = 2
+    repo._retry_delay_seconds = 0
+    repo._connection = None
+
+    with pytest.raises(RuntimeError, match="attach retry budget exhausted"):
+        repo._attach()
+
+    assert len(created) == 2
+    assert all(connection.closed for connection in created)

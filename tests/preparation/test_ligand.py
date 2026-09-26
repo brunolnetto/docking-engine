@@ -125,3 +125,54 @@ class FakePreparer:
 
 def test_ligand_preparer_is_runtime_checkable_port():
     assert isinstance(FakePreparer(), LigandPreparer)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: make_protocol(method_version=" "),
+        lambda: LigandPreparationRequest(
+            ligand_id="lig_1",
+            source_format=" ",
+            content=b"x",
+            protocol=make_protocol(),
+        ),
+        lambda: LigandPreparationRequest(
+            ligand_id="lig_1",
+            source_format="sdf",
+            content=b"x",
+            protocol=object(),
+        ),
+        lambda: LigandPreparationArtifact(
+            ligand_id=" ",
+            preparation_id="lprep_1",
+            microstate_id="micro_1",
+            conformer_id="conf_1",
+            pdbqt=b"x",
+        ),
+        lambda: LigandPreparationArtifact(
+            ligand_id="lig_1",
+            preparation_id=" ",
+            microstate_id="micro_1",
+            conformer_id="conf_1",
+            pdbqt=b"x",
+        ),
+        lambda: LigandPreparationArtifact(
+            ligand_id="lig_1",
+            preparation_id="lprep_1",
+            microstate_id="micro_1",
+            conformer_id=" ",
+            pdbqt=b"x",
+        ),
+        lambda: LigandPreparationArtifact(
+            ligand_id="lig_1",
+            preparation_id="lprep_1",
+            microstate_id="micro_1",
+            conformer_id="conf_1",
+            pdbqt="not-bytes",
+        ),
+    ],
+)
+def test_ligand_preparation_covers_all_validation_boundaries(factory):
+    with pytest.raises(DomainValidationError):
+        factory()

@@ -2,6 +2,8 @@ from subprocess import CompletedProcess
 
 import pytest
 
+import moldock.toolchain as toolchain_module
+
 from moldock.backends import VinaBackend
 from moldock.domain import DomainValidationError
 from moldock.preparation import (
@@ -207,3 +209,124 @@ def test_preflight_rejects_meeko_version_command_failure():
 
     with pytest.raises(DomainValidationError, match="Meeko version probe"):
         inspect(make_preflight(runner))
+
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["name", "executable", "resolved_path", "version"],
+)
+def test_executable_info_rejects_blank_fields(field):
+    values = {
+        "name": "vina",
+        "executable": "vina",
+        "resolved_path": "/opt/vina",
+        "version": "1.2.7",
+    }
+    values[field] = " "
+
+    with pytest.raises(DomainValidationError, match=field):
+        ExecutableInfo(**values)
+
+
+def test_default_runner_delegates_to_subprocess_run(monkeypatch):
+    expected = CompletedProcess(["tool", "--version"], 0, "ok", "")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return expected
+
+    monkeypatch.setattr(toolchain_module.subprocess, "run", fake_run)
+
+    result = toolchain_module._default_runner(["tool", "--version"])
+
+    assert result is expected
+    assert calls == [
+        (
+            ["tool", "--version"],
+            {
+                "capture_output": True,
+                "text": True,
+                "check": False,
+            },
+        )
+    ]
+
+
+def test_default_interpreter_returns_none_for_missing_or_empty_file(tmp_path):
+    missing = tmp_path / "missing"
+    empty = tmp_path / "empty"
+    empty.write_text("")
+
+    assert toolchain_module._default_interpreter_for_executable(str(missing)) is None
+    assert toolchain_module._default_interpreter_for_executable(str(empty)) is None
+
+
+def test_default_interpreter_requires_shebang(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("print('x')\n")
+
+    assert toolchain_module._default_interpreter_for_executable(str(script)) is None
+
+
+def test_default_interpreter_handles_env_shebang(monkeypatch, tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("#!/usr/bin/env python3\nprint('x')\n")
+    monkeypatch.setattr(
+        toolchain_module.shutil,
+        "which",
+        lambda name: "/venv/bin/python3" if name == "python3" else None,
+    )
+
+    assert (
+        toolchain_module._default_interpreter_for_executable(str(script))
+        == "/venv/bin/python3"
+    )
+
+
+def test_default_interpreter_rejects_env_without_program(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("#!/usr/bin/env\n")
+
+    assert toolchain_module._default_interpreter_for_executable(str(script)) is None
+
+
+def test_default_interpreter_returns_direct_shebang_interpreter(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("#!/opt/venv/bin/python\n")
+
+    assert (
+        toolchain_module._default_interpreter_for_executable(str(script))
+        == "/opt/venv/bin/python"
+    )
+
+
+def test_preflight_rejects_unparseable_vina_version():
+    class Runner(VersionRunner):
+        def __call__(self, command):
+            if command[0] == "/opt/vina/bin/vina":
+                return CompletedProcess(command, 0, "unknown version", "")
+            return super().__call__(command)
+
+    with pytest.raises(DomainValidationError, match="parse Vina version"):
+        inspect(make_preflight(Runner()))
+
+
+def test_preflight_rejects_empty_meeko_version():
+    class Runner(VersionRunner):
+        def __call__(self, command):
+            if command[0] == "/opt/meeko-lig/bin/python":
+                return CompletedProcess(command, 0, "\n", "")
+            return super().__call__(command)
+
+    with pytest.raises(DomainValidationError, match="returned no version"):
+        inspect(make_preflight(Runner()))
+
+
+
+def test_default_interpreter_rejects_empty_shebang_command(tmp_path):
+    script = tmp_path / "tool.py"
+    script.write_text("#!   \n")
+
+    assert toolchain_module._default_interpreter_for_executable(str(script)) is None

@@ -14,6 +14,7 @@ from moldock.domain import (
 from moldock.pipeline import (
     OfflineDockingPipeline,
     OfflineDockingSpec,
+    PipelineRunResult,
 )
 from moldock.preparation import (
     LigandPreparationArtifact,
@@ -488,3 +489,151 @@ def test_pipeline_persists_run_manifest_before_task_execution(tmp_path):
         tasks.close()
         artifacts.close()
         science.close()
+
+
+
+@pytest.mark.parametrize("field", ["run_id", "worker_id", "ligand_set_id"])
+def test_offline_spec_rejects_blank_identity_fields(field):
+    spec = make_spec()
+
+    with pytest.raises(DomainValidationError, match=field):
+        replace(spec, **{field: " "})
+
+
+def test_offline_spec_requires_at_least_one_ligand_request():
+    with pytest.raises(DomainValidationError, match="ligand_requests"):
+        replace(make_spec(), ligand_requests=())
+
+
+def test_offline_spec_rejects_ligand_protocol_mismatch():
+    spec = make_spec()
+    wrong = LigandPreparationProtocol(
+        method="wrong",
+        method_version="1",
+    )
+    request = replace(spec.ligand_requests[0], protocol=wrong)
+
+    with pytest.raises(DomainValidationError, match="ligand preparation"):
+        replace(spec, ligand_requests=(request,))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("run_id", " ", "run_id"),
+        ("experiment_id", " ", "experiment_id"),
+        ("protocol_id", " ", "protocol_id"),
+        ("manifest_id", " ", "manifest_id"),
+        ("prepared_receptor_id", " ", "prepared_receptor_id"),
+        ("prepared_ligand_ids", (" ",), "prepared_ligand_ids"),
+        ("task_ids", (" ",), "task_ids"),
+    ],
+)
+def test_pipeline_run_result_rejects_invalid_identities(field, value, match):
+    values = dict(
+        run_id="run",
+        experiment_id="exp",
+        protocol_id="protocol",
+        manifest_id="manifest",
+        prepared_receptor_id="prec",
+        prepared_ligand_ids=("plig",),
+        task_ids=("task",),
+    )
+    values[field] = value
+
+    with pytest.raises(DomainValidationError, match=match):
+        PipelineRunResult(**values)
+
+
+class EmptyLigandPreparer:
+    def prepare(self, request):
+        return ()
+
+
+class WrongReceptorIdentityPreparer(FakeReceptorPreparer):
+    def prepare(self, request):
+        artifact = super().prepare(request)
+        return replace(artifact, receptor_id="wrong")
+
+
+class WrongReceptorPreparationPreparer(FakeReceptorPreparer):
+    def prepare(self, request):
+        artifact = super().prepare(request)
+        return replace(artifact, preparation_id="wrong")
+
+
+class WrongLigandIdentityPreparer(FakeLigandPreparer):
+    def prepare(self, request):
+        artifact = super().prepare(request)[0]
+        return (replace(artifact, ligand_id="wrong"),)
+
+
+class WrongLigandPreparationPreparer(FakeLigandPreparer):
+    def prepare(self, request):
+        artifact = super().prepare(request)[0]
+        return (replace(artifact, preparation_id="wrong"),)
+
+
+def make_pipeline_with_preparers(
+    tmp_path,
+    *,
+    receptor_preparer=None,
+    ligand_preparer=None,
+):
+    store, prepared, tasks, artifacts, science = make_stack(tmp_path)
+    pipeline = OfflineDockingPipeline(
+        receptor_preparer=receptor_preparer or FakeReceptorPreparer(),
+        ligand_preparer=ligand_preparer or FakeLigandPreparer(),
+        prepared_inputs=prepared,
+        task_repository=tasks,
+        artifact_repository=artifacts,
+        artifact_store=store,
+        backend=VinaLikeBackend(),
+        clock=lambda: T0,
+    )
+    return pipeline, (prepared, tasks, artifacts, science)
+
+
+@pytest.mark.parametrize(
+    ("receptor_preparer", "ligand_preparer", "match"),
+    [
+        (None, EmptyLigandPreparer(), "produced no artifacts"),
+        (
+            WrongReceptorIdentityPreparer(),
+            None,
+            "unexpected receptor identity",
+        ),
+        (
+            WrongReceptorPreparationPreparer(),
+            None,
+            "unexpected preparation identity",
+        ),
+        (
+            None,
+            WrongLigandIdentityPreparer(),
+            "unexpected ligand identity",
+        ),
+        (
+            None,
+            WrongLigandPreparationPreparer(),
+            "unexpected preparation identity",
+        ),
+    ],
+)
+def test_offline_pipeline_rejects_invalid_preparation_outputs(
+    tmp_path,
+    receptor_preparer,
+    ligand_preparer,
+    match,
+):
+    pipeline, repositories = make_pipeline_with_preparers(
+        tmp_path,
+        receptor_preparer=receptor_preparer,
+        ligand_preparer=ligand_preparer,
+    )
+    try:
+        with pytest.raises(DomainValidationError, match=match):
+            pipeline.run(make_spec())
+    finally:
+        for repository in repositories:
+            repository.close()

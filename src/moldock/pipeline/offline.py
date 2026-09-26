@@ -208,11 +208,6 @@ class OfflineDockingPipeline:
             prepared_ligands_by_id[key]
             for key in sorted(prepared_ligands_by_id)
         )
-        if not prepared_ligands:
-            raise DomainValidationError(
-                "pipeline requires at least one prepared ligand"
-            )
-
         protocol = spec.docking_protocol
         experiment = DockingExperiment(
             receptor_id=spec.receptor_request.receptor_id,

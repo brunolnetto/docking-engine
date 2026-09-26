@@ -1,5 +1,6 @@
 import pytest
 
+import moldock.domain.analysis as analysis_module
 import moldock.domain.interaction as interaction_module
 import moldock.domain.result as result_module
 from moldock.domain import (
@@ -349,5 +350,95 @@ def test_ducklake_interaction_collision_is_rejected(tmp_path, monkeypatch):
         repo.register_interaction(first)
         with pytest.raises(DomainValidationError, match="conflicting"):
             repo.register_interaction(second)
+    finally:
+        repo.close()
+
+
+
+def make_metric(pose_id, value=1.0):
+    return PoseMetric(
+        pose_id=pose_id,
+        kind=PoseMetricKind.RMSD_TO_RANK1,
+        value=value,
+        unit="angstrom",
+        method="pdbqt_atom_order_direct_rmsd",
+        method_version="1",
+    )
+
+
+def make_cluster(pose_id, cluster_id="cluster_1"):
+    return PoseClusterAssignment(
+        pose_id=pose_id,
+        cluster_id=cluster_id,
+        method="rank_ordered_leader_rmsd",
+        method_version="1",
+    )
+
+
+def test_metric_and_cluster_require_known_pose(tmp_path):
+    repo = make_repo(tmp_path)
+    try:
+        with pytest.raises(DomainValidationError, match="unknown pose"):
+            repo.register_metric(make_metric("missing"))
+        with pytest.raises(DomainValidationError, match="unknown pose"):
+            repo.register_cluster_assignment(make_cluster("missing"))
+    finally:
+        repo.close()
+
+
+def test_metric_registration_is_idempotent_and_detects_collision(
+    tmp_path,
+    monkeypatch,
+):
+    repo = make_repo(tmp_path)
+    pose = make_pose()
+    repo.register_pose(pose)
+    metric = make_metric(pose.pose_id)
+    try:
+        repo.register_metric(metric)
+        repo.register_metric(metric)
+        assert repo.list_metrics_for_pose(pose.pose_id) == (metric,)
+
+        monkeypatch.setattr(
+            analysis_module,
+            "content_id",
+            lambda prefix, value: f"{prefix}_forced_metric_collision",
+        )
+        first = make_metric(pose.pose_id, value=2.0)
+        second = make_metric(pose.pose_id, value=3.0)
+        assert first.metric_id == second.metric_id
+        repo.register_metric(first)
+        with pytest.raises(DomainValidationError, match="conflicting"):
+            repo.register_metric(second)
+    finally:
+        repo.close()
+
+
+def test_cluster_registration_is_idempotent_and_detects_collision(
+    tmp_path,
+    monkeypatch,
+):
+    repo = make_repo(tmp_path)
+    pose = make_pose()
+    repo.register_pose(pose)
+    cluster = make_cluster(pose.pose_id)
+    try:
+        repo.register_cluster_assignment(cluster)
+        repo.register_cluster_assignment(cluster)
+        assert repo.list_cluster_assignments_for_pose(pose.pose_id) == (
+            cluster,
+        )
+
+        monkeypatch.setattr(
+            analysis_module,
+            "content_id",
+            lambda prefix, value: f"{prefix}_forced_cluster_collision",
+        )
+        first = make_cluster(pose.pose_id, "cluster_a")
+        second = make_cluster(pose.pose_id, "cluster_b")
+        assert first.assignment_id == second.assignment_id
+        repo.register_cluster_assignment(first)
+        with pytest.raises(DomainValidationError, match="conflicting"):
+            repo.register_cluster_assignment(second)
     finally:
         repo.close()

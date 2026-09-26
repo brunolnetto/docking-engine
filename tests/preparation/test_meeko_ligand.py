@@ -4,6 +4,8 @@ from subprocess import CompletedProcess, TimeoutExpired
 
 import pytest
 
+import moldock.preparation.meeko_ligand as meeko_ligand_module
+
 from moldock.domain import DomainValidationError
 from moldock.preparation import (
     LigandPreparationProtocol,
@@ -294,3 +296,72 @@ def test_meeko_ligand_preparer_keeps_legacy_runner_signature_without_timeout():
 
     assert artifact.pdbqt == b"ROOT\nENDROOT\n"
     assert len(calls) == 1
+
+
+
+def test_meeko_ligand_rejects_blank_method_version():
+    with pytest.raises(ValueError, match="method_version"):
+        MeekoLigandPreparer(method_version=" ")
+
+
+def test_meeko_ligand_rejects_empty_output_file():
+    class EmptyOutputRunner(RecordingRunner):
+        def __call__(self, command, *, cwd, timeout=None):
+            self.calls.append((tuple(command), Path(cwd), timeout))
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_bytes(b"")
+            return CompletedProcess(command, 0, "ok", "")
+
+    preparer = MeekoLigandPreparer(
+        method_version="0.8.0",
+        runner=EmptyOutputRunner(),
+    )
+
+    with pytest.raises(MeekoLigandPreparationError, match="empty output"):
+        preparer.prepare(make_request())
+
+
+def test_meeko_ligand_false_flags_are_not_emitted():
+    runner = RecordingRunner()
+    preparer = MeekoLigandPreparer(
+        method_version="0.8.0",
+        runner=runner,
+    )
+
+    preparer.prepare(
+        make_request(
+            parameters={
+                "add_index_map": False,
+                "remove_smiles": False,
+                "rename_atoms": False,
+            }
+        )
+    )
+
+    command = runner.calls[0][0]
+    assert "--add_index_map" not in command
+    assert "--remove_smiles" not in command
+    assert "--rename_atoms" not in command
+
+
+def test_meeko_ligand_default_runner_delegates_to_subprocess(monkeypatch, tmp_path):
+    expected = CompletedProcess(["tool"], 0, "ok", "")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return expected
+
+    monkeypatch.setattr(meeko_ligand_module.subprocess, "run", fake_run)
+
+    result = meeko_ligand_module._default_runner(
+        ["tool"],
+        cwd=tmp_path,
+        timeout=3.0,
+    )
+
+    assert result is expected
+    assert calls[0][0] == ["tool"]
+    assert calls[0][1]["cwd"] == tmp_path
+    assert calls[0][1]["timeout"] == 3.0
+    assert calls[0][1]["check"] is False

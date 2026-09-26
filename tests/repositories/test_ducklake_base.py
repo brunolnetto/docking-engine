@@ -224,3 +224,136 @@ def test_attach_exhausts_conflict_retry_budget(monkeypatch, tmp_path):
 
     assert len(created) == 2
     assert all(connection.closed for connection in created)
+
+
+
+def test_ducklake_base_constructor_rejects_missing_optional_dependency(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(ducklake_base_module, "duckdb", None)
+
+    with pytest.raises(RuntimeError, match="optional dependency"):
+        DuckLakeRepositoryBase(
+            catalog_path=tmp_path / "catalog.sqlite",
+            data_path=tmp_path / "data",
+        )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"max_transaction_retries": 0}, "max_transaction_retries"),
+        ({"retry_delay_seconds": -1}, "retry_delay_seconds"),
+    ],
+)
+def test_ducklake_base_constructor_validates_retry_configuration(
+    tmp_path,
+    kwargs,
+    match,
+):
+    with pytest.raises(DomainValidationError, match=match):
+        DuckLakeRepositoryBase(
+            catalog_path=tmp_path / "catalog.sqlite",
+            data_path=tmp_path / "data",
+            **kwargs,
+        )
+
+
+def test_attach_closes_connection_and_propagates_non_conflict(
+    monkeypatch,
+    tmp_path,
+):
+    class FailingConnection(RecordingConnection):
+        def execute(self, query):
+            self.calls.append(query.strip().upper())
+            raise RuntimeError("syntax error")
+
+    connection = FailingConnection()
+    monkeypatch.setattr(
+        ducklake_base_module.duckdb,
+        "connect",
+        lambda: connection,
+    )
+    repo = object.__new__(DuckLakeRepositoryBase)
+    repo._catalog_path = tmp_path / "catalog.sqlite"
+    repo._data_path = tmp_path / "data"
+    repo._max_transaction_retries = 2
+    repo._retry_delay_seconds = 0
+    repo._connection = None
+
+    with pytest.raises(RuntimeError, match="syntax error"):
+        repo._attach()
+
+    assert connection.closed is True
+
+
+def test_bootstrap_coordination_rejects_duplicate_shared_rows():
+    class Result:
+        def __init__(self, rows=()):
+            self._rows = rows
+
+        def fetchall(self):
+            return list(self._rows)
+
+    class CoordinationConnection(RecordingConnection):
+        def execute(self, query):
+            statement = query.strip().upper()
+            self.calls.append(statement)
+            if statement.startswith("SELECT COORDINATION_KEY"):
+                return Result(
+                    [
+                        ("shared_adapters", 0),
+                        ("shared_adapters", 1),
+                    ]
+                )
+            return Result()
+
+    repo = bare_base(connection=CoordinationConnection())
+
+    with pytest.raises(RuntimeError, match="must be unique"):
+        repo._bootstrap_coordination()
+
+
+def test_run_transaction_retries_conflict_before_transaction_starts(
+    monkeypatch,
+):
+    first = RecordingConnection()
+    second = RecordingConnection()
+    original_first_execute = first.execute
+    state = {"failed": False}
+
+    def first_execute(query):
+        statement = query.strip().upper()
+        if statement == "BEGIN TRANSACTION" and not state["failed"]:
+            state["failed"] = True
+            raise RuntimeError("database is locked")
+        return original_first_execute(query)
+
+    first.execute = first_execute
+    repo = bare_base(connection=first)
+    reconnects = []
+
+    def reconnect():
+        reconnects.append(True)
+        repo._connection = second
+
+    monkeypatch.setattr(repo, "_reconnect", reconnect)
+
+    assert repo._run_transaction(
+        lambda: "ok",
+        touch_coordination=False,
+    ) == "ok"
+    assert reconnects == [True]
+    assert "ROLLBACK" not in first.calls
+
+
+def test_reconnect_attaches_when_connection_is_already_absent(monkeypatch):
+    repo = bare_base()
+    repo._connection = None
+    attached = []
+    monkeypatch.setattr(repo, "_attach", lambda: attached.append(True))
+
+    repo._reconnect()
+
+    assert attached == [True]
