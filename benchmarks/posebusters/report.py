@@ -57,10 +57,11 @@ def render_markdown(
     search_space = protocol.get("search_space", {})
     evaluation = protocol.get("evaluation", {})
 
-    scientific_available = summary.completed_cases > 0
-    top1_rate = summary.top1_rmsd_le_2a_rate if scientific_available else None
-    pb_rate = summary.pb_valid_rate if scientific_available else None
-    combined_rate = summary.combined_success_rate if scientific_available else None
+    top1_rate = summary.top1_rmsd_le_2a_rate if summary.rmsd_evaluable_cases else None
+    pb_rate = summary.pb_valid_rate if summary.pb_evaluable_cases else None
+    combined_rate = (
+        summary.combined_success_rate if summary.combined_evaluable_cases else None
+    )
 
     engine_completed = (
         engine_completed_cases
@@ -71,6 +72,11 @@ def render_markdown(
         engine_total_cases
         if engine_total_cases is not None
         else summary.total_cases
+    )
+    effective_engine_rate = (
+        engine_success_rate
+        if engine_success_rate is not None
+        else (engine_completed / engine_total if engine_total else None)
     )
 
     lines = [
@@ -121,9 +127,8 @@ def render_markdown(
         f"| Median Top-1 RMSD | {_number(summary.median_rmsd_angstrom, ' Å')} |",
         "",
         (
-            "Scientific rates are computed over successfully evaluable cases. "
-            "When no cases are evaluable, scientific rates are reported as n/a "
-            "rather than as 0%."
+            "Scientific rates use metric-specific evaluable denominators. "
+            "Unavailable evidence is reported as n/a rather than as 0%."
         ),
         "",
         "## Engine quality",
@@ -131,7 +136,7 @@ def render_markdown(
         "| Metric | Result |",
         "| --- | ---: |",
         f"| Engine-completed cases | {engine_completed}/{engine_total} |",
-        f"| Engine execution success | {_pct(engine_success_rate)} |",
+        f"| Engine execution success | {_pct(effective_engine_rate)} |",
         f"| End-to-end evaluable cases | {summary.completed_cases}/{summary.total_cases} |",
         f"| End-to-end evaluability | {_pct(summary.execution_success_rate if summary.total_cases else None)} |",
         f"| Median evaluable-case runtime | {_number(summary.median_runtime_seconds, ' s')} |",
