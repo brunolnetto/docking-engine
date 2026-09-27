@@ -158,3 +158,27 @@ def test_compare_fails_when_evaluator_completeness_regresses():
     assert "rmsd_evaluable_rate" in failed
     assert "pb_evaluable_rate" in failed
     assert "combined_evaluable_rate" in failed
+
+
+def test_compare_accepts_exact_documented_drop_boundary():
+    baseline = build_baseline(
+        summary=_summary(top1=0.60),
+        engine_cases=_engine(),
+        manifest=_manifest(),
+        manifest_digest="abc",
+        source_commit="deadbeef",
+    )
+    result = compare(
+        baseline=baseline,
+        summary=_summary(top1=0.58),
+        engine_cases=_engine(),
+        manifest_digest="abc",
+    )
+
+    top1 = next(
+        check
+        for check in result["checks"]
+        if check["metric"] == "top1_rmsd_le_2a_rate"
+    )
+    assert top1["delta"] == pytest.approx(-0.02)
+    assert top1["passed"] is True
