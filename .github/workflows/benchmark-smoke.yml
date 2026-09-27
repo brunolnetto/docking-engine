@@ -25,6 +25,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[benchmark]"
+          python - <<'PY'
+          import meeko
+          import posebusters
+          import scipy
+          import gemmi
+          print("Meeko", getattr(meeko, "__version__", "unknown"))
+          print("PoseBusters", getattr(posebusters, "__version__", "unknown"))
+          print("SciPy", scipy.__version__)
+          print("Gemmi", gemmi.__version__)
+          PY
           sudo curl -fsSL -o /usr/local/bin/vina \
             https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
           sudo chmod +x /usr/local/bin/vina
