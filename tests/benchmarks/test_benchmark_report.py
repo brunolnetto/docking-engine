@@ -20,6 +20,7 @@ def _summary(*, completed_cases: int = 3) -> BenchmarkSummary:
         pb_evaluable_cases=completed_cases,
         combined_evaluable_cases=completed_cases,
         topn_rmsd_le_2a_rates={"1": 2 / 3, "3": 1.0, "5": 1.0, "9": 1.0} if completed_cases else {},
+        topn_evaluable_cases={"1": completed_cases, "3": completed_cases, "5": completed_cases, "9": completed_cases} if completed_cases else {},
     )
 
 
@@ -114,3 +115,17 @@ def test_report_keeps_published_reference_contextual():
     assert "> Only compare equivalent protocols." in rendered
     assert "automatic regression gate" in rendered
     assert "Delta" not in rendered
+
+
+def test_report_marks_unevaluated_topn_cutoff_as_na():
+    summary = _summary()
+    summary = BenchmarkSummary(
+        **{
+            **summary.to_dict(),
+            "topn_evaluable_cases": {"1": 3, "3": 0, "5": 0, "9": 0},
+        }
+    )
+    rendered = render_markdown(summary=summary, manifest=_manifest())
+
+    assert "| Top-1 RMSD ≤ 2 Å | 66.7% |" in rendered
+    assert "| Top-3 RMSD ≤ 2 Å | n/a |" in rendered
