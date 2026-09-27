@@ -32,14 +32,23 @@ def _find_rmsd_numeric(row) -> float | None:
     return None
 
 
+def _boolean_value(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if type(value).__name__ == "bool_":
+        return bool(value)
+    return None
+
+
 def _physical_validity(binary_row) -> bool:
     checks = []
     for key, value in binary_row.items():
         name = _column_name(key).lower().replace("å", "a")
         if "rmsd" in name:
             continue
-        if isinstance(value, bool):
-            checks.append(value)
+        normalized = _boolean_value(value)
+        if normalized is not None:
+            checks.append(normalized)
     if not checks:
         raise RuntimeError(
             "PoseBusters returned no physical-validity boolean checks"
