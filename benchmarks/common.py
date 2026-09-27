@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 from statistics import median
@@ -16,10 +16,25 @@ class CaseResult:
     runtime_seconds: float | None = None
     failure_stage: str | None = None
     error: str | None = None
+    pose_rmsd_angstroms: tuple[float, ...] = ()
+    pose_pb_valid: tuple[bool, ...] = ()
+
+    @property
+    def ranked_rmsds(self) -> tuple[float, ...]:
+        if self.pose_rmsd_angstroms:
+            return tuple(self.pose_rmsd_angstroms)
+        if self.rmsd_angstrom is not None:
+            return (self.rmsd_angstrom,)
+        return ()
+
+    def top_n_rmsd_success(self, n: int) -> bool:
+        if n < 1:
+            raise ValueError("top-N must be >= 1")
+        return any(rmsd <= 2.0 for rmsd in self.ranked_rmsds[:n])
 
     @property
     def rmsd_success(self) -> bool:
-        return self.rmsd_angstrom is not None and self.rmsd_angstrom <= 2.0
+        return self.top_n_rmsd_success(1)
 
     @property
     def combined_success(self) -> bool:
@@ -38,6 +53,7 @@ class BenchmarkSummary:
     median_rmsd_angstrom: float | None
     median_runtime_seconds: float | None
     failures_by_stage: dict[str, int]
+    topn_rmsd_le_2a_rates: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -46,12 +62,12 @@ class BenchmarkSummary:
 def summarize(
     benchmark: str,
     results: Iterable[CaseResult],
+    *,
+    top_n_values: tuple[int, ...] = (1, 3, 5, 9),
 ) -> BenchmarkSummary:
     rows = tuple(results)
     completed = tuple(row for row in rows if row.completed)
-    rmsd_rows = tuple(
-        row for row in completed if row.rmsd_angstrom is not None
-    )
+    rmsd_rows = tuple(row for row in completed if row.ranked_rmsds)
     pb_rows = tuple(row for row in completed if row.pb_valid is not None)
 
     failures: dict[str, int] = {}
@@ -66,20 +82,23 @@ def summarize(
         for row in completed
         if row.runtime_seconds is not None
     ]
-    rmsds = [row.rmsd_angstrom for row in rmsd_rows]
+    rmsds = [row.ranked_rmsds[0] for row in rmsd_rows]
+
+    topn_rates = {
+        str(n): (
+            sum(row.top_n_rmsd_success(n) for row in rmsd_rows) / len(rmsd_rows)
+            if rmsd_rows
+            else 0.0
+        )
+        for n in top_n_values
+    }
 
     return BenchmarkSummary(
         benchmark=benchmark,
         total_cases=len(rows),
         completed_cases=len(completed),
-        execution_success_rate=(
-            len(completed) / len(rows) if rows else 0.0
-        ),
-        top1_rmsd_le_2a_rate=(
-            sum(row.rmsd_success for row in rmsd_rows) / len(rmsd_rows)
-            if rmsd_rows
-            else 0.0
-        ),
+        execution_success_rate=(len(completed) / len(rows) if rows else 0.0),
+        top1_rmsd_le_2a_rate=topn_rates.get("1", 0.0),
         pb_valid_rate=(
             sum(row.pb_valid is True for row in pb_rows) / len(pb_rows)
             if pb_rows
@@ -93,6 +112,7 @@ def summarize(
         median_rmsd_angstrom=median(rmsds) if rmsds else None,
         median_runtime_seconds=median(runtimes) if runtimes else None,
         failures_by_stage=dict(sorted(failures.items())),
+        topn_rmsd_le_2a_rates=topn_rates,
     )
 
 
