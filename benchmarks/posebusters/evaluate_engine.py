@@ -61,8 +61,9 @@ def evaluate_completed_case(row: dict[str, object]) -> CaseResult:
         from posebusters import PoseBusters
     except ImportError as exc:
         raise RuntimeError(
-            "PoseBusters evaluation requires the benchmark extra: "
-            "python -m pip install -e '.[benchmark]'"
+            "PoseBusters import failed after benchmark installation: "
+            f"{type(exc).__name__}: {exc}. "
+            "Install with python -m pip install -e '.[benchmark]'."
         ) from exc
 
     predicted = Path(str(row["predicted_sdf"]))
