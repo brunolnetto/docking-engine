@@ -11,11 +11,30 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from benchmarks.redocking import RedockingHarnessConfig, run_dataset  # noqa: E402
 
 
+CASE_IDS_PATH = HERE / "posebusters_pdb_ccd_ids.txt"
+
+
+def load_case_ids(path: Path = CASE_IDS_PATH) -> frozenset[str]:
+    identifiers = tuple(
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
+    unique = frozenset(identifiers)
+    if len(identifiers) != 308 or len(unique) != 308:
+        raise RuntimeError(
+            "PoseBusters journal subset identifier file must contain "
+            "exactly 308 unique case IDs"
+        )
+    return unique
+
+
 CONFIG = RedockingHarnessConfig(
     benchmark="PoseBusters",
     expected_case_count=308,
     run_prefix="posebusters",
     worker_id="posebusters-benchmark",
+    allowed_case_ids=load_case_ids(),
 )
 
 
