@@ -126,6 +126,39 @@ jobs:
             --output-root .full-benchmark/output \
             --limit "$COUNT"
 
+      - name: Validate shard engine completion
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          rows = json.loads(
+              Path(".full-benchmark/output/engine_cases.json").read_text()
+          )["cases"]
+          completed = sum(row.get("completed") is True for row in rows)
+          if completed == 0:
+              failures = Counter(
+                  row.get("failure_stage", "unknown")
+                  for row in rows
+                  if row.get("completed") is not True
+              )
+              examples = [
+                  {
+                      "case_id": row.get("case_id"),
+                      "failure_stage": row.get("failure_stage"),
+                      "error": row.get("error"),
+                  }
+                  for row in rows
+                  if row.get("completed") is not True
+              ][:3]
+              raise RuntimeError(
+                  "benchmark shard produced zero successful engine cases; "
+                  f"failures={dict(failures)}; examples={examples}"
+              )
+          print(f"completed engine cases: {completed}/{len(rows)}")
+          PY
+
       - name: Upload shard results
         uses: actions/upload-artifact@v7
         with:
@@ -190,10 +223,8 @@ jobs:
           path: .full-benchmark/aggregate/
           retention-days: 90
 
-      - name: Create measured-baseline PR
+      - name: Push measured-baseline branch
         if: ${{ inputs.create_baseline_pr }}
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           BRANCH="benchmark/posebusters-measured-baseline-${GITHUB_RUN_ID}"
           cp .full-benchmark/aggregate/engine-v1.json \
@@ -204,8 +235,5 @@ jobs:
           git add benchmarks/posebusters/baselines/engine-v1.json
           git commit -m "benchmark: record measured PoseBusters baseline"
           git push origin "$BRANCH"
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "Record measured PoseBusters benchmark baseline" \
-            --body "Generated from a complete 308-case sharded run of the pinned PoseBusters benchmark. The baseline values are measured engine output, not published-reference values."
+          echo "Measured baseline branch pushed: $BRANCH"
+          echo "Open the PR with a GitHub user/app permitted to create pull requests."
