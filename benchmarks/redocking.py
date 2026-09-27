@@ -257,6 +257,7 @@ def run_case(
             "case_id": case.case_id,
             "completed": True,
             "runtime_seconds": time.monotonic() - started,
+            "predicted_pdbqt": str(predicted_pdbqt),
             "predicted_sdf": str(predicted_sdf),
             "crystal_ligand_sdf": str(case.ligand),
             "receptor_pdb": str(case.receptor),
