@@ -69,11 +69,33 @@ jobs:
           shard_index = int(os.environ["SHARD_INDEX"])
           shard_count = int(os.environ["SHARD_COUNT"])
 
-          cases = sorted(path for path in source.iterdir() if path.is_dir())
-          if len(cases) != 308:
+          identifiers_path = Path(
+              "benchmarks/posebusters/posebusters_pdb_ccd_ids.txt"
+          )
+          identifiers = tuple(
+              line.strip()
+              for line in identifiers_path.read_text(
+                  encoding="utf-8"
+              ).splitlines()
+              if line.strip()
+          )
+          if len(identifiers) != 308 or len(set(identifiers)) != 308:
               raise RuntimeError(
-                  f"expected 308 PoseBusters cases, found {len(cases)}"
+                  "pinned PoseBusters identifier file must contain "
+                  "exactly 308 unique case IDs"
               )
+
+          cases = []
+          for case_id in sorted(identifiers):
+              path = source / case_id
+              receptor = path / f"{case_id}_protein.pdb"
+              ligand = path / f"{case_id}_ligand.sdf"
+              if not receptor.is_file() or not ligand.is_file():
+                  raise RuntimeError(
+                      f"pinned PoseBusters case is missing required files: "
+                      f"{case_id}"
+                  )
+              cases.append(path)
 
           selected = [
               path
