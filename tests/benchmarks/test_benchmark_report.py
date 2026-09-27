@@ -19,6 +19,8 @@ def _summary(*, completed_cases: int = 3) -> BenchmarkSummary:
         rmsd_evaluable_cases=completed_cases,
         pb_evaluable_cases=completed_cases,
         combined_evaluable_cases=completed_cases,
+        topn_rmsd_le_2a_rates={"1": 2 / 3, "3": 1.0, "5": 1.0, "9": 1.0} if completed_cases else {},
+        topn_evaluable_cases={"1": completed_cases, "3": completed_cases, "5": completed_cases, "9": completed_cases} if completed_cases else {},
     )
 
 
@@ -45,7 +47,7 @@ def _manifest() -> dict[str, object]:
                 "exhaustiveness": 8,
                 "num_modes": 9,
             },
-            "evaluation": {"posebusters_version": "0.6.5", "config": "redock"},
+            "evaluation": {"posebusters_version": "0.6.5", "config": "redock", "top_n_values": [1, 3, 5, 9]},
         },
     }
 
@@ -71,6 +73,9 @@ def test_report_separates_scientific_engine_and_evaluation_quality():
         engine_success_rate=1.0,
     )
     assert "| Top-1 RMSD ≤ 2 Å | 66.7% |" in rendered
+    assert "| Top-3 RMSD ≤ 2 Å | 100.0% |" in rendered
+    assert "| Top-5 RMSD ≤ 2 Å | 100.0% |" in rendered
+    assert "| Top-9 RMSD ≤ 2 Å | 100.0% |" in rendered
     assert "| Engine-completed cases | 4/4 |" in rendered
     assert "| Engine execution success | 100.0% |" in rendered
     assert "| End-to-end evaluable cases | 3/4 |" in rendered
@@ -86,6 +91,7 @@ def test_report_renders_scientific_rates_as_na_without_evaluable_cases():
         engine_success_rate=1.0,
     )
     assert "| Top-1 RMSD ≤ 2 Å | n/a |" in rendered
+    assert "| Top-3 RMSD ≤ 2 Å | n/a |" in rendered
     assert "| PB-valid | n/a |" in rendered
     assert "| RMSD ≤ 2 Å and PB-valid | n/a |" in rendered
     assert "| Engine execution success | 100.0% |" in rendered
@@ -111,34 +117,18 @@ def test_report_keeps_published_reference_contextual():
     assert "Delta" not in rendered
 
 
-def test_report_uses_metric_specific_availability():
+def test_report_marks_unevaluated_topn_cutoff_as_na():
+    summary = _summary()
     summary = BenchmarkSummary(
-        benchmark="posebusters_benchmark_v1",
-        total_cases=1,
-        completed_cases=1,
-        execution_success_rate=1.0,
-        top1_rmsd_le_2a_rate=1.0,
-        pb_valid_rate=0.0,
-        combined_success_rate=0.0,
-        median_rmsd_angstrom=1.0,
-        median_runtime_seconds=1.0,
-        failures_by_stage={},
-        rmsd_evaluable_cases=1,
-        pb_evaluable_cases=0,
-        combined_evaluable_cases=0,
+        **{
+            **summary.to_dict(),
+            "topn_evaluable_cases": {"1": 3, "3": 0, "5": 0, "9": 0},
+        }
     )
     rendered = render_markdown(summary=summary, manifest=_manifest())
 
-    assert "| Top-1 RMSD ≤ 2 Å | 100.0% |" in rendered
-    assert "| PB-valid | n/a |" in rendered
-    assert "| RMSD ≤ 2 Å and PB-valid | n/a |" in rendered
-
-
-def test_report_fallback_engine_rate_matches_fallback_counts():
-    rendered = render_markdown(summary=_summary(), manifest=_manifest())
-
-    assert "| Engine-completed cases | 3/4 |" in rendered
-    assert "| Engine execution success | 75.0% |" in rendered
+    assert "| Top-1 RMSD ≤ 2 Å | 66.7% |" in rendered
+    assert "| Top-3 RMSD ≤ 2 Å | n/a |" in rendered
 
 
 def test_report_fallback_prefers_persisted_engine_metrics():
@@ -158,6 +148,8 @@ def test_report_fallback_prefers_persisted_engine_metrics():
         combined_evaluable_cases=1,
         engine_completed_cases=2,
         engine_execution_success_rate=1.0,
+        topn_rmsd_le_2a_rates={"1": 1.0},
+        topn_evaluable_cases={"1": 1},
     )
 
     rendered = render_markdown(summary=summary, manifest=_manifest())

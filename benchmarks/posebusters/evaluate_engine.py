@@ -65,7 +65,7 @@ def _physical_validity(binary_row) -> bool:
     return all(checks)
 
 
-def evaluate_completed_case(row: dict[str, object]) -> CaseResult:
+def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseResult:
     try:
         from posebusters import PoseBusters
     except ImportError as exc:
@@ -78,7 +78,7 @@ def evaluate_completed_case(row: dict[str, object]) -> CaseResult:
     predicted = Path(str(row["predicted_sdf"]))
     crystal = Path(str(row["crystal_ligand_sdf"]))
     receptor = Path(str(row["receptor_pdb"]))
-    buster = PoseBusters(config="redock", top_n=1, max_workers=0)
+    buster = PoseBusters(config="redock", top_n=top_n, max_workers=0)
 
     full = buster.bust(
         predicted,
@@ -89,23 +89,36 @@ def evaluate_completed_case(row: dict[str, object]) -> CaseResult:
     if full.empty:
         raise RuntimeError("PoseBusters returned an empty report")
 
-    full_row = full.iloc[0]
-    rmsd = _find_rmsd_numeric(full_row)
-    if rmsd is None:
-        raise RuntimeError(
-            "PoseBusters full report did not expose numeric RMSD"
-        )
+    pose_rmsds: list[float | None] = []
+    pose_validity: list[bool | None] = []
+    for position, (_, full_row) in enumerate(full.iterrows(), start=1):
+        rmsd = _find_rmsd_numeric(full_row)
+        if position == 1 and rmsd is None:
+            raise RuntimeError(
+                "PoseBusters full report did not expose numeric RMSD "
+                "for ranked pose 1"
+            )
+        pose_rmsds.append(rmsd)
+        try:
+            pose_validity.append(_physical_validity(full_row))
+        except RuntimeError:
+            if position == 1:
+                raise
+            pose_validity.append(None)
 
     return CaseResult(
         case_id=str(row["case_id"]),
         completed=True,
-        rmsd_angstrom=rmsd,
-        pb_valid=_physical_validity(full_row),
+        rmsd_angstrom=pose_rmsds[0],
+        pb_valid=pose_validity[0],
         runtime_seconds=(
             float(row["runtime_seconds"])
             if row.get("runtime_seconds") is not None
             else None
         ),
+        pose_rmsd_angstroms=tuple(pose_rmsds),
+        pose_pb_valid=tuple(pose_validity),
+        pose_evaluation_limit=top_n,
     )
 
 
@@ -114,7 +127,10 @@ def main() -> int:
     parser.add_argument("--engine-cases", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
+    parser.add_argument("--top-n", type=int, default=9)
     args = parser.parse_args()
+    if args.top_n < 1:
+        parser.error("--top-n must be >= 1")
 
     payload = json.loads(args.engine_cases.read_text(encoding="utf-8"))
     engine_rows = payload["cases"]
@@ -122,9 +138,7 @@ def main() -> int:
     engine_completed = sum(
         row.get("completed") is True for row in engine_rows
     )
-    engine_rate = (
-        engine_completed / engine_total if engine_total else None
-    )
+    engine_rate = engine_completed / engine_total if engine_total else None
     results = []
     for row in payload["cases"]:
         if not row.get("completed"):
@@ -145,7 +159,7 @@ def main() -> int:
             )
             continue
         try:
-            results.append(evaluate_completed_case(row))
+            results.append(evaluate_completed_case(row, top_n=args.top_n))
         except Exception as exc:
             results.append(
                 CaseResult(

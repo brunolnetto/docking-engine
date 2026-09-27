@@ -20,6 +20,8 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             rmsd_angstrom=1.5,
             pb_valid=True,
             runtime_seconds=10.0,
+            pose_rmsd_angstroms=(1.5, 1.2, 0.9),
+            pose_evaluation_limit=9,
         ),
         CaseResult(
             case_id="b",
@@ -27,6 +29,8 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             rmsd_angstrom=3.0,
             pb_valid=True,
             runtime_seconds=20.0,
+            pose_rmsd_angstroms=(3.0, 2.5, 1.8),
+            pose_evaluation_limit=9,
         ),
         CaseResult(
             case_id="c",
@@ -34,6 +38,8 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             rmsd_angstrom=1.0,
             pb_valid=False,
             runtime_seconds=30.0,
+            pose_rmsd_angstroms=(1.0, 0.8, 0.7),
+            pose_evaluation_limit=9,
         ),
         CaseResult(
             case_id="d",
@@ -48,6 +54,8 @@ def test_benchmark_summary_separates_science_and_engine_failures():
     assert summary.completed_cases == 3
     assert summary.execution_success_rate == pytest.approx(0.75)
     assert summary.top1_rmsd_le_2a_rate == pytest.approx(2 / 3)
+    assert summary.topn_rmsd_le_2a_rates["3"] == pytest.approx(1.0)
+    assert summary.topn_rmsd_le_2a_rates["5"] == pytest.approx(1.0)
     assert summary.pb_valid_rate == pytest.approx(2 / 3)
     assert summary.combined_success_rate == pytest.approx(1 / 3)
     assert summary.median_rmsd_angstrom == pytest.approx(1.5)
@@ -132,3 +140,64 @@ def test_find_rmsd_numeric_skips_numpy_boolean_check():
     }
 
     assert _find_rmsd_numeric(row) == pytest.approx(2.345)
+
+
+def test_case_result_top_n_preserves_engine_rank_order():
+    row = CaseResult(
+        case_id="ranked",
+        completed=True,
+        rmsd_angstrom=4.0,
+        pose_rmsd_angstroms=(4.0, 3.0, 1.5, 0.8),
+        pose_evaluation_limit=9,
+    )
+
+    assert row.top_n_rmsd_success(1) is False
+    assert row.top_n_rmsd_success(2) is False
+    assert row.top_n_rmsd_success(3) is True
+    with pytest.raises(ValueError, match=">= 1"):
+        row.top_n_rmsd_success(0)
+
+
+def test_top_n_is_unavailable_when_evaluation_depth_is_too_shallow():
+    row = CaseResult(
+        case_id="shallow",
+        completed=True,
+        rmsd_angstrom=3.0,
+        pose_rmsd_angstroms=(3.0,),
+        pose_evaluation_limit=1,
+    )
+
+    assert row.top_n_rmsd_success(1) is False
+    assert row.top_n_rmsd_success(3) is None
+
+
+def test_top_n_preserves_known_success_before_missing_rank():
+    row = CaseResult(
+        case_id="partial",
+        completed=True,
+        rmsd_angstrom=3.0,
+        pose_rmsd_angstroms=(3.0, None, 1.5),
+        pose_evaluation_limit=3,
+    )
+
+    assert row.top_n_rmsd_success(2) is None
+    assert row.top_n_rmsd_success(3) is True
+
+
+def test_combined_metric_excludes_missing_top1_rmsd():
+    summary = summarize(
+        "pb",
+        (
+            CaseResult(
+                case_id="missing-top1",
+                completed=True,
+                pb_valid=True,
+                pose_rmsd_angstroms=(None, 1.5),
+                pose_evaluation_limit=2,
+            ),
+        ),
+    )
+
+    assert summary.rmsd_evaluable_cases == 0
+    assert summary.combined_evaluable_cases == 0
+    assert summary.combined_success_rate == 0.0

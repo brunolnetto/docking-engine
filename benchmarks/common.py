@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 from statistics import median
@@ -16,10 +16,33 @@ class CaseResult:
     runtime_seconds: float | None = None
     failure_stage: str | None = None
     error: str | None = None
+    pose_rmsd_angstroms: tuple[float | None, ...] = ()
+    pose_pb_valid: tuple[bool | None, ...] = ()
+    pose_evaluation_limit: int = 1
+
+    @property
+    def ranked_rmsds(self) -> tuple[float | None, ...]:
+        if self.pose_rmsd_angstroms:
+            return tuple(self.pose_rmsd_angstroms)
+        if self.rmsd_angstrom is not None:
+            return (self.rmsd_angstrom,)
+        return ()
+
+    def top_n_rmsd_success(self, n: int) -> bool | None:
+        if n < 1:
+            raise ValueError("top-N must be >= 1")
+        evidence = self.ranked_rmsds[:n]
+        if any(rmsd is not None and rmsd <= 2.0 for rmsd in evidence):
+            return True
+        if self.pose_evaluation_limit < n:
+            return None
+        if any(rmsd is None for rmsd in evidence):
+            return None
+        return False
 
     @property
     def rmsd_success(self) -> bool:
-        return self.rmsd_angstrom is not None and self.rmsd_angstrom <= 2.0
+        return self.top_n_rmsd_success(1) is True
 
     @property
     def combined_success(self) -> bool:
@@ -43,6 +66,8 @@ class BenchmarkSummary:
     combined_evaluable_cases: int = 0
     engine_completed_cases: int | None = None
     engine_execution_success_rate: float | None = None
+    topn_rmsd_le_2a_rates: dict[str, float] = field(default_factory=dict)
+    topn_evaluable_cases: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -51,16 +76,21 @@ class BenchmarkSummary:
 def summarize(
     benchmark: str,
     results: Iterable[CaseResult],
+    *,
+    top_n_values: tuple[int, ...] = (1, 3, 5, 9),
 ) -> BenchmarkSummary:
     rows = tuple(results)
     completed = tuple(row for row in rows if row.completed)
     rmsd_rows = tuple(
-        row for row in completed if row.rmsd_angstrom is not None
+        row for row in completed
+        if row.top_n_rmsd_success(1) is not None
     )
     pb_rows = tuple(row for row in completed if row.pb_valid is not None)
     combined_rows = tuple(
-        row for row in completed
-        if row.rmsd_angstrom is not None and row.pb_valid is not None
+        row
+        for row in completed
+        if row.top_n_rmsd_success(1) is not None
+        and row.pb_valid is not None
     )
 
     failures: dict[str, int] = {}
@@ -75,20 +105,39 @@ def summarize(
         for row in completed
         if row.runtime_seconds is not None
     ]
-    rmsds = [row.rmsd_angstrom for row in rmsd_rows]
+    rmsds = [
+        row.ranked_rmsds[0]
+        for row in rmsd_rows
+        if row.ranked_rmsds and row.ranked_rmsds[0] is not None
+    ]
+
+    topn_evidence = {
+        n: tuple(
+            result
+            for row in completed
+            if (result := row.top_n_rmsd_success(n)) is not None
+        )
+        for n in top_n_values
+    }
+    topn_rates = {
+        str(n): (
+            sum(results) / len(results)
+            if results
+            else 0.0
+        )
+        for n, results in topn_evidence.items()
+    }
+    topn_counts = {
+        str(n): len(results)
+        for n, results in topn_evidence.items()
+    }
 
     return BenchmarkSummary(
         benchmark=benchmark,
         total_cases=len(rows),
         completed_cases=len(completed),
-        execution_success_rate=(
-            len(completed) / len(rows) if rows else 0.0
-        ),
-        top1_rmsd_le_2a_rate=(
-            sum(row.rmsd_success for row in rmsd_rows) / len(rmsd_rows)
-            if rmsd_rows
-            else 0.0
-        ),
+        execution_success_rate=(len(completed) / len(rows) if rows else 0.0),
+        top1_rmsd_le_2a_rate=topn_rates.get("1", 0.0),
         pb_valid_rate=(
             sum(row.pb_valid is True for row in pb_rows) / len(pb_rows)
             if pb_rows
@@ -105,6 +154,8 @@ def summarize(
         rmsd_evaluable_cases=len(rmsd_rows),
         pb_evaluable_cases=len(pb_rows),
         combined_evaluable_cases=len(combined_rows),
+        topn_rmsd_le_2a_rates=topn_rates,
+        topn_evaluable_cases=topn_counts,
     )
 
 

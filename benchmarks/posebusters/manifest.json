@@ -12,7 +12,7 @@
     "task": "cognate_ligand_redocking",
     "search_space": {
       "shape": "cube",
-      "side_angstrom": 25.0,
+      "side_angstrom": 25,
       "center": "geometric_center_of_crystal_ligand_heavy_atoms"
     },
     "receptor": {
@@ -30,12 +30,18 @@
       "seed": 42,
       "exhaustiveness": 8,
       "num_modes": 9,
-      "energy_range": 3.0
+      "energy_range": 3
     },
     "evaluation": {
       "posebusters_version": "0.6.5",
       "config": "redock",
-      "top1_rmsd_threshold_angstrom": 2.0
+      "top1_rmsd_threshold_angstrom": 2,
+      "top_n_values": [
+        1,
+        3,
+        5,
+        9
+      ]
     }
   },
   "published_reference": {
