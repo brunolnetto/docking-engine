@@ -4,7 +4,12 @@ import argparse
 from dataclasses import replace
 import json
 from pathlib import Path
+import sys
 from typing import Any, Iterable
+
+HERE = Path(__file__).resolve().parent
+REPOSITORY_ROOT = HERE.parent
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.common import CaseResult, summarize, write_summary
 from benchmarks.interaction_summary import aggregate_family_rows, render_interaction_report
