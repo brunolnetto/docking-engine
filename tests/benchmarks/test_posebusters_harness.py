@@ -20,6 +20,7 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             rmsd_angstrom=1.5,
             pb_valid=True,
             runtime_seconds=10.0,
+            pose_rmsd_angstroms=(1.5, 1.2, 0.9),
         ),
         CaseResult(
             case_id="b",
@@ -27,6 +28,7 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             rmsd_angstrom=3.0,
             pb_valid=True,
             runtime_seconds=20.0,
+            pose_rmsd_angstroms=(3.0, 2.5, 1.8),
         ),
         CaseResult(
             case_id="c",
@@ -34,6 +36,7 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             rmsd_angstrom=1.0,
             pb_valid=False,
             runtime_seconds=30.0,
+            pose_rmsd_angstroms=(1.0, 0.8, 0.7),
         ),
         CaseResult(
             case_id="d",
@@ -48,6 +51,8 @@ def test_benchmark_summary_separates_science_and_engine_failures():
     assert summary.completed_cases == 3
     assert summary.execution_success_rate == pytest.approx(0.75)
     assert summary.top1_rmsd_le_2a_rate == pytest.approx(2 / 3)
+    assert summary.topn_rmsd_le_2a_rates["3"] == pytest.approx(1.0)
+    assert summary.topn_rmsd_le_2a_rates["5"] == pytest.approx(1.0)
     assert summary.pb_valid_rate == pytest.approx(2 / 3)
     assert summary.combined_success_rate == pytest.approx(1 / 3)
     assert summary.median_rmsd_angstrom == pytest.approx(1.5)
@@ -132,3 +137,18 @@ def test_find_rmsd_numeric_skips_numpy_boolean_check():
     }
 
     assert _find_rmsd_numeric(row) == pytest.approx(2.345)
+
+
+def test_case_result_top_n_preserves_engine_rank_order():
+    row = CaseResult(
+        case_id="ranked",
+        completed=True,
+        rmsd_angstrom=4.0,
+        pose_rmsd_angstroms=(4.0, 3.0, 1.5, 0.8),
+    )
+
+    assert row.top_n_rmsd_success(1) is False
+    assert row.top_n_rmsd_success(2) is False
+    assert row.top_n_rmsd_success(3) is True
+    with pytest.raises(ValueError, match=">= 1"):
+        row.top_n_rmsd_success(0)
