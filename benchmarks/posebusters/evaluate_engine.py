@@ -71,22 +71,15 @@ def evaluate_completed_case(row: dict[str, object]) -> CaseResult:
     receptor = Path(str(row["receptor_pdb"]))
     buster = PoseBusters(config="redock", top_n=1, max_workers=0)
 
-    binary = buster.bust(
-        predicted,
-        crystal,
-        receptor,
-        full_report=False,
-    )
     full = buster.bust(
         predicted,
         crystal,
         receptor,
         full_report=True,
     )
-    if binary.empty or full.empty:
+    if full.empty:
         raise RuntimeError("PoseBusters returned an empty report")
 
-    binary_row = binary.iloc[0]
     full_row = full.iloc[0]
     rmsd = _find_rmsd_numeric(full_row)
     if rmsd is None:
@@ -98,7 +91,7 @@ def evaluate_completed_case(row: dict[str, object]) -> CaseResult:
         case_id=str(row["case_id"]),
         completed=True,
         rmsd_angstrom=rmsd,
-        pb_valid=_physical_validity(binary_row),
+        pb_valid=_physical_validity(full_row),
         runtime_seconds=(
             float(row["runtime_seconds"])
             if row.get("runtime_seconds") is not None
