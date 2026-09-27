@@ -9,6 +9,7 @@ HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from benchmarks.interaction_summary import render_interaction_report  # noqa: E402
 from benchmarks.interactions import (  # noqa: E402
     InteractionRecoveryMetrics,
     aggregate_metrics,
@@ -93,69 +94,9 @@ def evaluate_case(row: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _format_metric(value: float | None) -> str:
-    return "n/a" if value is None else f"{value:.3f}"
 
-
-def render_report(summary: dict[str, object]) -> str:
-    families = summary.get("families")
-    if not isinstance(families, list):
-        raise ValueError("interaction summary families must be a list")
-    lines = [
-        "# Interaction Recovery Benchmark",
-        "",
-        (
-            "This benchmark compares residue-level interaction fingerprints "
-            "between the prepared crystallographic ligand and the engine's "
-            "Top-1 predicted pose."
-        ),
-        "",
-        f"**Cases:** {summary.get('total_cases', 0)}",
-        (
-            "**Interaction-evaluable cases:** "
-            f"{summary.get('interaction_evaluable_cases', 0)}"
-        ),
-        "",
-        "| Family | Reference | Predicted | TP | FP | FN | Precision | Recall | F1 | Jaccard |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    for family in families:
-        if not isinstance(family, dict):
-            continue
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    str(family.get("kind", "unknown")),
-                    str(family.get("reference_count", 0)),
-                    str(family.get("predicted_count", 0)),
-                    str(family.get("true_positive", 0)),
-                    str(family.get("false_positive", 0)),
-                    str(family.get("false_negative", 0)),
-                    _format_metric(family.get("precision")),
-                    _format_metric(family.get("recall")),
-                    _format_metric(family.get("f1")),
-                    _format_metric(family.get("jaccard")),
-                ]
-            )
-            + " |"
-        )
-    lines.extend(
-        [
-            "",
-            "## Semantics",
-            "",
-            "- Fingerprints are compared independently by interaction family.",
-            "- The fingerprint unit is interaction family + receptor residue, not atom-pair count.",
-            "- Empty reference/prediction families are reported as n/a rather than perfect recovery.",
-            "- Salt bridges retain the engine's current putative-charge semantics.",
-            "- These recurrence/recovery statistics are not molecular-dynamics occupancy.",
-            "- No combined interaction confidence score is calculated.",
-            "",
-        ]
-    )
-    return "\n".join(lines)
-
+# Backward-compatible entrypoint used by existing callers/tests.
+render_report = render_interaction_report
 
 def main() -> int:
     parser = argparse.ArgumentParser()
