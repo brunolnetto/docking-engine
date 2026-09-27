@@ -54,6 +54,8 @@ def main() -> int:
         [
             sys.executable,
             str(HERE / "report.py"),
+            "--engine-cases",
+            str(engine_cases),
             "--evaluated-cases",
             str(evaluated_cases),
             "--manifest",

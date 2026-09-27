@@ -68,6 +68,8 @@ jobs:
           assert summary["total_cases"] == 1
           assert summary["completed_cases"] == 1, cases
           assert summary["execution_success_rate"] == 1.0
+          assert summary["engine_execution_success_rate"] == 1.0
+          assert summary["engine_completed_cases"] == 1
           assert len(cases) == 1
           assert cases[0]["rmsd_angstrom"] is not None
           assert isinstance(cases[0]["pb_valid"], bool)
