@@ -16,25 +16,33 @@ class CaseResult:
     runtime_seconds: float | None = None
     failure_stage: str | None = None
     error: str | None = None
-    pose_rmsd_angstroms: tuple[float, ...] = ()
-    pose_pb_valid: tuple[bool, ...] = ()
+    pose_rmsd_angstroms: tuple[float | None, ...] = ()
+    pose_pb_valid: tuple[bool | None, ...] = ()
+    pose_evaluation_limit: int = 1
 
     @property
-    def ranked_rmsds(self) -> tuple[float, ...]:
+    def ranked_rmsds(self) -> tuple[float | None, ...]:
         if self.pose_rmsd_angstroms:
             return tuple(self.pose_rmsd_angstroms)
         if self.rmsd_angstrom is not None:
             return (self.rmsd_angstrom,)
         return ()
 
-    def top_n_rmsd_success(self, n: int) -> bool:
+    def top_n_rmsd_success(self, n: int) -> bool | None:
         if n < 1:
             raise ValueError("top-N must be >= 1")
-        return any(rmsd <= 2.0 for rmsd in self.ranked_rmsds[:n])
+        evidence = self.ranked_rmsds[:n]
+        if any(rmsd is not None and rmsd <= 2.0 for rmsd in evidence):
+            return True
+        if self.pose_evaluation_limit < n:
+            return None
+        if any(rmsd is None for rmsd in evidence):
+            return None
+        return False
 
     @property
     def rmsd_success(self) -> bool:
-        return self.top_n_rmsd_success(1)
+        return self.top_n_rmsd_success(1) is True
 
     @property
     def combined_success(self) -> bool:
@@ -56,9 +64,10 @@ class BenchmarkSummary:
     rmsd_evaluable_cases: int = 0
     pb_evaluable_cases: int = 0
     combined_evaluable_cases: int = 0
-    engine_completed_cases: int = 0
+    engine_completed_cases: int | None = None
     engine_execution_success_rate: float | None = None
     topn_rmsd_le_2a_rates: dict[str, float] = field(default_factory=dict)
+    topn_evaluable_cases: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -72,7 +81,10 @@ def summarize(
 ) -> BenchmarkSummary:
     rows = tuple(results)
     completed = tuple(row for row in rows if row.completed)
-    rmsd_rows = tuple(row for row in completed if row.ranked_rmsds)
+    rmsd_rows = tuple(
+        row for row in completed
+        if row.top_n_rmsd_success(1) is not None
+    )
     pb_rows = tuple(row for row in completed if row.pb_valid is not None)
     combined_rows = tuple(
         row for row in completed if row.ranked_rmsds and row.pb_valid is not None
@@ -90,15 +102,31 @@ def summarize(
         for row in completed
         if row.runtime_seconds is not None
     ]
-    rmsds = [row.ranked_rmsds[0] for row in rmsd_rows]
+    rmsds = [
+        row.ranked_rmsds[0]
+        for row in rmsd_rows
+        if row.ranked_rmsds and row.ranked_rmsds[0] is not None
+    ]
 
-    topn_rates = {
-        str(n): (
-            sum(row.top_n_rmsd_success(n) for row in rmsd_rows) / len(rmsd_rows)
-            if rmsd_rows
-            else 0.0
+    topn_evidence = {
+        n: tuple(
+            result
+            for row in completed
+            if (result := row.top_n_rmsd_success(n)) is not None
         )
         for n in top_n_values
+    }
+    topn_rates = {
+        str(n): (
+            sum(results) / len(results)
+            if results
+            else 0.0
+        )
+        for n, results in topn_evidence.items()
+    }
+    topn_counts = {
+        str(n): len(results)
+        for n, results in topn_evidence.items()
     }
 
     return BenchmarkSummary(
@@ -124,6 +152,7 @@ def summarize(
         pb_evaluable_cases=len(pb_rows),
         combined_evaluable_cases=len(combined_rows),
         topn_rmsd_le_2a_rates=topn_rates,
+        topn_evaluable_cases=topn_counts,
     )
 
 
