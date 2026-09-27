@@ -1,0 +1,27 @@
+{
+  "benchmark": "posebusters_benchmark_v1",
+  "case_count": 308,
+  "kind": "repository_measured_baseline",
+  "manifest_sha256": "0290f000cb1288aacd059a224c0c18d32b5d44440bcbb8d6e3ede98ef46c930d",
+  "metrics": {
+    "combined_evaluable_rate": 0.0,
+    "combined_success_rate": 0.0,
+    "end_to_end_evaluability_rate": 0.0,
+    "engine_completed_cases": 0,
+    "engine_execution_success_rate": 0.0,
+    "median_rmsd_angstrom": null,
+    "median_runtime_seconds": null,
+    "pb_evaluable_rate": 0.0,
+    "pb_valid_rate": 0.0,
+    "rmsd_evaluable_rate": 0.0,
+    "top1_rmsd_le_2a_rate": 0.0,
+    "topn_rmsd_le_2a_rates": {
+      "1": 0.0,
+      "3": 0.0,
+      "5": 0.0,
+      "9": 0.0
+    }
+  },
+  "schema_version": 1,
+  "source_commit": "5a32f232524f13f9227e7e43ba3717c8305247f2"
+}
