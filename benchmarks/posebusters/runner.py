@@ -11,30 +11,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from benchmarks.redocking import RedockingHarnessConfig, run_dataset  # noqa: E402
 
 
-CASE_IDS_PATH = HERE / "posebusters_pdb_ccd_ids.txt"
-
-
-def load_case_ids(
-    path: Path = CASE_IDS_PATH,
-    *,
-    expected_count: int | None = 308,
-) -> frozenset[str]:
-    identifiers = tuple(
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    )
-    unique = frozenset(identifiers)
-    if len(unique) != len(identifiers):
-        raise RuntimeError("PoseBusters case identifier file contains duplicates")
-    if expected_count is not None and len(unique) != expected_count:
-        raise RuntimeError(
-            "PoseBusters case identifier file must contain exactly "
-            f"{expected_count} unique case IDs"
-        )
-    return unique
-
-
+from benchmarks.posebusters.cases import load_case_ids  # noqa: E402
 CONFIG = RedockingHarnessConfig(
     benchmark="PoseBusters",
     expected_case_count=308,
