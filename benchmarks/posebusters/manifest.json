@@ -6,7 +6,15 @@
     "archive_url": "https://zenodo.org/records/8278563/files/posebusters_paper_data.zip",
     "archive_md5": "f004ac7c4e68317b5348497d2bb6bee6",
     "subset_directory": "posebusters_benchmark_set",
-    "paper_case_count": 308
+    "paper_case_count": 308,
+    "case_ids_file": "posebusters_pdb_ccd_ids.txt",
+    "case_ids_source": {
+      "repository": "BioinfoMachineLearning/PoseBench",
+      "commit": "d2eeef8f2272d730d572ac22f3b25d48dc47966e",
+      "path": "data/posebusters_pdb_ccd_ids.txt",
+      "blob_sha": "3b8a105a7028d0f966afb39da1cda160c5f3db64",
+      "note": "Pinned mirror of the journal-paper 308 identifiers linked from Zenodo record 8278563."
+    }
   },
   "protocol": {
     "task": "cognate_ligand_redocking",
