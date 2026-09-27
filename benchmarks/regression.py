@@ -9,6 +9,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
+_RATE_EPSILON = 1e-12
 DEFAULT_THRESHOLDS = {
     "engine_execution_success_rate": 0.01,
     "end_to_end_evaluability_rate": 0.01,
@@ -189,7 +190,7 @@ def compare(
                 current=float(current),
                 delta=delta,
                 allowed_drop=allowed_drop,
-                passed=delta >= -allowed_drop,
+                passed=delta + allowed_drop >= -_RATE_EPSILON,
             )
         )
 
