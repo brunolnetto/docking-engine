@@ -39,7 +39,11 @@ def _find_rmsd_numeric(row) -> float | None:
 def _boolean_value(value: object) -> bool | None:
     if isinstance(value, bool):
         return value
-    if type(value).__name__ == "bool_":
+    value_type = type(value)
+    if (
+        value_type.__module__.startswith("numpy")
+        and value_type.__name__ in {"bool", "bool_"}
+    ):
         return bool(value)
     return None
 
