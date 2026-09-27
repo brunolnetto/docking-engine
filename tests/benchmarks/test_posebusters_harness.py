@@ -21,6 +21,7 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             pb_valid=True,
             runtime_seconds=10.0,
             pose_rmsd_angstroms=(1.5, 1.2, 0.9),
+            pose_evaluation_limit=9,
         ),
         CaseResult(
             case_id="b",
@@ -29,6 +30,7 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             pb_valid=True,
             runtime_seconds=20.0,
             pose_rmsd_angstroms=(3.0, 2.5, 1.8),
+            pose_evaluation_limit=9,
         ),
         CaseResult(
             case_id="c",
@@ -37,6 +39,7 @@ def test_benchmark_summary_separates_science_and_engine_failures():
             pb_valid=False,
             runtime_seconds=30.0,
             pose_rmsd_angstroms=(1.0, 0.8, 0.7),
+            pose_evaluation_limit=9,
         ),
         CaseResult(
             case_id="d",
@@ -145,6 +148,7 @@ def test_case_result_top_n_preserves_engine_rank_order():
         completed=True,
         rmsd_angstrom=4.0,
         pose_rmsd_angstroms=(4.0, 3.0, 1.5, 0.8),
+        pose_evaluation_limit=9,
     )
 
     assert row.top_n_rmsd_success(1) is False
@@ -152,3 +156,29 @@ def test_case_result_top_n_preserves_engine_rank_order():
     assert row.top_n_rmsd_success(3) is True
     with pytest.raises(ValueError, match=">= 1"):
         row.top_n_rmsd_success(0)
+
+
+def test_top_n_is_unavailable_when_evaluation_depth_is_too_shallow():
+    row = CaseResult(
+        case_id="shallow",
+        completed=True,
+        rmsd_angstrom=3.0,
+        pose_rmsd_angstroms=(3.0,),
+        pose_evaluation_limit=1,
+    )
+
+    assert row.top_n_rmsd_success(1) is False
+    assert row.top_n_rmsd_success(3) is None
+
+
+def test_top_n_preserves_known_success_before_missing_rank():
+    row = CaseResult(
+        case_id="partial",
+        completed=True,
+        rmsd_angstrom=3.0,
+        pose_rmsd_angstroms=(3.0, None, 1.5),
+        pose_evaluation_limit=3,
+    )
+
+    assert row.top_n_rmsd_success(2) is None
+    assert row.top_n_rmsd_success(3) is True
