@@ -66,11 +66,13 @@ jobs:
 
           root = Path(".benchmark-smoke/astex-output")
           summary = json.loads((root / "summary.json").read_text())
+          engine_cases = json.loads((root / "engine_cases.json").read_text())["cases"]
           report = (root / "report.md").read_text()
 
           assert summary["benchmark"] == "astex_diverse_v1"
           assert summary["total_cases"] == 1
-          assert summary["engine_execution_success_rate"] == 1.0
+          assert len(engine_cases) == 1
+          assert engine_cases[0]["completed"] is True
           assert "Astex" not in report or "astex_diverse_v1" in report
           PY
 
