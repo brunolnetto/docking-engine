@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-REPOSITORY_ROOT = HERE.parent.parent
+REPOSITORY_ROOT = HERE.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.interactions import (  # noqa: E402
