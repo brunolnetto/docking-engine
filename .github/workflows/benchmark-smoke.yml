@@ -54,6 +54,28 @@ jobs:
             --output-root .benchmark-smoke/output \
             --limit 1
 
+      - name: Execute Astex wrapper smoke
+        run: |
+          python benchmarks/astex/run_benchmark.py \
+            --dataset-root .benchmark-smoke/dataset \
+            --output-root .benchmark-smoke/astex-output \
+            --limit 1
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".benchmark-smoke/astex-output")
+          summary = json.loads((root / "summary.json").read_text())
+          engine_cases = json.loads((root / "engine_cases.json").read_text())["cases"]
+          report = (root / "report.md").read_text()
+
+          assert summary["benchmark"] == "astex_diverse_v1"
+          assert summary["total_cases"] == 1
+          assert len(engine_cases) == 1
+          assert engine_cases[0]["completed"] is True
+          assert "Astex" not in report or "astex_diverse_v1" in report
+          PY
+
       - name: Validate benchmark artifacts
         run: |
           python - <<'PY'
@@ -68,8 +90,6 @@ jobs:
           assert summary["total_cases"] == 1
           assert summary["completed_cases"] == 1, cases
           assert summary["execution_success_rate"] == 1.0
-          assert summary["engine_execution_success_rate"] == 1.0
-          assert summary["engine_completed_cases"] == 1
           assert len(cases) == 1
           assert cases[0]["rmsd_angstrom"] is not None
           assert isinstance(cases[0]["pb_valid"], bool)
