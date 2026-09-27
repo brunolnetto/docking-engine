@@ -16,6 +16,7 @@ def _summary(*, completed_cases: int = 3) -> BenchmarkSummary:
         median_rmsd_angstrom=1.5 if completed_cases else None,
         median_runtime_seconds=20.0 if completed_cases else None,
         failures_by_stage={} if completed_cases == 4 else {"evaluation": 4 - completed_cases},
+        topn_rmsd_le_2a_rates={"1": 2 / 3, "3": 1.0, "5": 1.0, "9": 1.0} if completed_cases else {},
     )
 
 
@@ -42,7 +43,7 @@ def _manifest() -> dict[str, object]:
                 "exhaustiveness": 8,
                 "num_modes": 9,
             },
-            "evaluation": {"posebusters_version": "0.6.5", "config": "redock"},
+            "evaluation": {"posebusters_version": "0.6.5", "config": "redock", "top_n_values": [1, 3, 5, 9]},
         },
     }
 
@@ -68,6 +69,9 @@ def test_report_separates_scientific_engine_and_evaluation_quality():
         engine_success_rate=1.0,
     )
     assert "| Top-1 RMSD ≤ 2 Å | 66.7% |" in rendered
+    assert "| Top-3 RMSD ≤ 2 Å | 100.0% |" in rendered
+    assert "| Top-5 RMSD ≤ 2 Å | 100.0% |" in rendered
+    assert "| Top-9 RMSD ≤ 2 Å | 100.0% |" in rendered
     assert "| Engine-completed cases | 4/4 |" in rendered
     assert "| Engine execution success | 100.0% |" in rendered
     assert "| End-to-end evaluable cases | 3/4 |" in rendered
@@ -83,6 +87,7 @@ def test_report_renders_scientific_rates_as_na_without_evaluable_cases():
         engine_success_rate=1.0,
     )
     assert "| Top-1 RMSD ≤ 2 Å | n/a |" in rendered
+    assert "| Top-3 RMSD ≤ 2 Å | n/a |" in rendered
     assert "| PB-valid | n/a |" in rendered
     assert "| RMSD ≤ 2 Å and PB-valid | n/a |" in rendered
     assert "| Engine execution success | 100.0% |" in rendered
