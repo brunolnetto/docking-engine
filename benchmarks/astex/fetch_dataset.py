@@ -8,7 +8,7 @@ HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE.parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from benchmarks.posebusters.fetch_dataset import main as fetch_posebusters_archive  # noqa: E402
+from benchmarks.posebusters.fetch_dataset import fetch_and_extract  # noqa: E402
 
 
 def find_astex_root(destination: Path) -> Path:
@@ -31,20 +31,11 @@ def main() -> int:
     parser.add_argument("--keep-archive", action="store_true")
     args = parser.parse_args()
 
-    original_argv = sys.argv
-    try:
-        sys.argv = [
-            str(HERE / "fetch_dataset.py"),
-            "--destination",
-            str(args.destination),
-        ]
-        if args.keep_archive:
-            sys.argv.append("--keep-archive")
-        fetch_posebusters_archive()
-    finally:
-        sys.argv = original_argv
-
-    root = find_astex_root(args.destination.resolve())
+    destination = fetch_and_extract(
+        args.destination,
+        keep_archive=args.keep_archive,
+    )
+    root = find_astex_root(destination)
     print(root)
     return 0
 
