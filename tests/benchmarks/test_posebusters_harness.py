@@ -101,11 +101,15 @@ def test_physical_validity_requires_checks():
 
 
 
-def test_boolean_value_accepts_numpy_style_bool():
+@pytest.mark.parametrize("type_name", ["bool", "bool_"])
+def test_boolean_value_accepts_numpy_style_bool(type_name):
     BoolLike = type(
-        "bool_",
+        type_name,
         (),
-        {"__bool__": lambda self: True},
+        {
+            "__module__": "numpy",
+            "__bool__": lambda self: True,
+        },
     )
 
     assert _boolean_value(BoolLike()) is True
