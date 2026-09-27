@@ -81,7 +81,7 @@ def render_markdown(
     )
 
     topn_rows = [
-        f"| Top-{n} RMSD ≤ 2 Å | {_pct(summary.topn_rmsd_le_2a_rates.get(str(n)) if rmsd_available else None)} |"
+        f"| Top-{n} RMSD ≤ 2 Å | {_pct(summary.topn_rmsd_le_2a_rates.get(str(n)) if summary.topn_evaluable_cases.get(str(n), 0) else None)} |"
         for n in evaluation.get("top_n_values", [1, 3, 5, 9])
         if n != 1
     ]
