@@ -221,10 +221,15 @@ def main() -> int:
     args = parser.parse_args()
 
     cases = discover_cases(args.dataset_root)
-    if args.limit is not None:
-        cases = cases[: args.limit]
     if not cases:
         raise RuntimeError("no PoseBusters benchmark cases discovered")
+    if args.limit is None and len(cases) != 308:
+        raise RuntimeError(
+            "full PoseBusters benchmark requires exactly 308 cases; "
+            f"discovered {len(cases)}"
+        )
+    if args.limit is not None:
+        cases = cases[: args.limit]
 
     args.output_root.mkdir(parents=True, exist_ok=True)
     rows = []
