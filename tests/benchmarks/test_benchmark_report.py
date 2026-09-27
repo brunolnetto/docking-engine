@@ -16,6 +16,9 @@ def _summary(*, completed_cases: int = 3) -> BenchmarkSummary:
         median_rmsd_angstrom=1.5 if completed_cases else None,
         median_runtime_seconds=20.0 if completed_cases else None,
         failures_by_stage={} if completed_cases == 4 else {"evaluation": 4 - completed_cases},
+        rmsd_evaluable_cases=completed_cases,
+        pb_evaluable_cases=completed_cases,
+        combined_evaluable_cases=completed_cases,
         topn_rmsd_le_2a_rates={"1": 2 / 3, "3": 1.0, "5": 1.0, "9": 1.0} if completed_cases else {},
     )
 
