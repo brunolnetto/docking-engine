@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -88,17 +89,22 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
     if full.empty:
         raise RuntimeError("PoseBusters returned an empty report")
 
-    pose_rmsds = []
-    pose_validity = []
+    pose_rmsds: list[float | None] = []
+    pose_validity: list[bool | None] = []
     for position, (_, full_row) in enumerate(full.iterrows(), start=1):
         rmsd = _find_rmsd_numeric(full_row)
-        if rmsd is None:
+        if position == 1 and rmsd is None:
             raise RuntimeError(
                 "PoseBusters full report did not expose numeric RMSD "
-                f"for ranked pose {position}"
+                "for ranked pose 1"
             )
         pose_rmsds.append(rmsd)
-        pose_validity.append(_physical_validity(full_row))
+        try:
+            pose_validity.append(_physical_validity(full_row))
+        except RuntimeError:
+            if position == 1:
+                raise
+            pose_validity.append(None)
 
     return CaseResult(
         case_id=str(row["case_id"]),
@@ -112,6 +118,7 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
         ),
         pose_rmsd_angstroms=tuple(pose_rmsds),
         pose_pb_valid=tuple(pose_validity),
+        pose_evaluation_limit=top_n,
     )
 
 
@@ -127,6 +134,12 @@ def main() -> int:
         parser.error("--top-n must be >= 1")
 
     payload = json.loads(args.engine_cases.read_text(encoding="utf-8"))
+    engine_rows = payload["cases"]
+    engine_total = len(engine_rows)
+    engine_completed = sum(
+        row.get("completed") is True for row in engine_rows
+    )
+    engine_rate = engine_completed / engine_total if engine_total else None
     results = []
     for row in payload["cases"]:
         if not row.get("completed"):
@@ -169,7 +182,11 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
-    summary = summarize("posebusters_benchmark_v1", results)
+    summary = replace(
+        summarize(args.benchmark, results),
+        engine_completed_cases=engine_completed,
+        engine_execution_success_rate=engine_rate,
+    )
     write_summary(args.summary, summary)
     print(json.dumps(summary.to_dict(), indent=2, sort_keys=True))
     return 0
