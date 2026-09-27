@@ -41,6 +41,8 @@ class BenchmarkSummary:
     rmsd_evaluable_cases: int = 0
     pb_evaluable_cases: int = 0
     combined_evaluable_cases: int = 0
+    engine_completed_cases: int = 0
+    engine_execution_success_rate: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
