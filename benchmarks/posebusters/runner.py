@@ -264,6 +264,7 @@ def main() -> int:
     args.output_root.mkdir(parents=True, exist_ok=True)
     rows = []
     for case in cases:
+        case_started = time.monotonic()
         try:
             rows.append(run_case(case, args.output_root))
         except BenchmarkStageError as exc:
@@ -273,7 +274,7 @@ def main() -> int:
                     "completed": False,
                     "failure_stage": exc.stage,
                     "error": str(exc),
-                    "runtime_seconds": None,
+                    "runtime_seconds": time.monotonic() - case_started,
                 }
             )
         except Exception as exc:
@@ -283,7 +284,7 @@ def main() -> int:
                     "completed": False,
                     "failure_stage": "engine",
                     "error": f"{type(exc).__name__}: {exc}",
-                    "runtime_seconds": None,
+                    "runtime_seconds": time.monotonic() - case_started,
                 }
             )
     path = args.output_root / "engine_cases.json"
