@@ -72,10 +72,17 @@ jobs:
           shard_index = int(os.environ["SHARD_INDEX"])
           shard_count = int(os.environ["SHARD_COUNT"])
 
-          cases = sorted(path for path in source.iterdir() if path.is_dir())
+          cases = sorted(
+              path
+              for path in source.iterdir()
+              if path.is_dir()
+              and (path / f"{path.name}_protein.pdb").is_file()
+              and (path / f"{path.name}_ligand.sdf").is_file()
+          )
           if len(cases) != 308:
               raise RuntimeError(
-                  f"expected 308 PoseBusters cases, found {len(cases)}"
+                  "expected 308 valid PoseBusters benchmark cases "
+                  f"matching the runner layout, found {len(cases)}"
               )
 
           selected = [
