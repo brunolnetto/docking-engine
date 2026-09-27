@@ -1,6 +1,9 @@
 name: Full PoseBusters Baseline
 
 on:
+  push:
+    branches:
+      - benchmark/run-full-posebusters-v3
   workflow_dispatch:
     inputs:
       create_baseline_pr:
