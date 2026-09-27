@@ -46,13 +46,15 @@ jobs:
             .benchmark-smoke/dataset/1iep_STI/1iep_STI_protein.pdb
           cp examples/fixtures/1iep_ligand.sdf \
             .benchmark-smoke/dataset/1iep_STI/1iep_STI_ligand.sdf
+          printf '1iep_STI\n' > .benchmark-smoke/smoke_case_ids.txt
 
       - name: Execute engine and PoseBusters evaluation
         run: |
           python benchmarks/posebusters/run_benchmark.py \
             --dataset-root .benchmark-smoke/dataset \
             --output-root .benchmark-smoke/output \
-            --limit 1
+            --limit 1 \
+            --case-ids-file .benchmark-smoke/smoke_case_ids.txt
 
       - name: Execute Astex wrapper smoke
         run: |
