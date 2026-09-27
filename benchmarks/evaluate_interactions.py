@@ -10,6 +10,7 @@ REPOSITORY_ROOT = HERE.parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.interactions import (  # noqa: E402
+    InteractionRecoveryMetrics,
     aggregate_metrics,
     compare_fingerprints,
     extract_pdbqt_fingerprint,
@@ -133,9 +134,7 @@ def main() -> int:
         evaluated.append(result)
         successful_metrics.append(
             tuple(
-                compare_fingerprints.__globals__["InteractionRecoveryMetrics"](
-                    **metric
-                )
+                InteractionRecoveryMetrics(**metric)
                 for metric in result["families"]
             )
         )
