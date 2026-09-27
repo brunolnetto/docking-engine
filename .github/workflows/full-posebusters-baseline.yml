@@ -1,0 +1,189 @@
+name: Full PoseBusters Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_baseline_pr:
+        description: "Create a PR containing the measured engine-v1.json baseline"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  dock-shards:
+    name: PoseBusters shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install benchmark toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[benchmark]"
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Fetch pinned PoseBusters dataset
+        run: |
+          python benchmarks/posebusters/fetch_dataset.py \
+            --destination .full-benchmark/dataset
+
+      - name: Build deterministic shard
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: "16"
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+
+          extracted = Path(".full-benchmark/dataset")
+          matches = sorted(
+              path
+              for path in extracted.rglob("posebusters_benchmark_set")
+              if path.is_dir()
+          )
+          if len(matches) != 1:
+              raise RuntimeError(
+                  "expected exactly one posebusters_benchmark_set; "
+                  f"found {len(matches)}"
+              )
+
+          source = matches[0]
+          target = Path(".full-benchmark/shard-dataset")
+          target.mkdir(parents=True, exist_ok=True)
+          shard_index = int(os.environ["SHARD_INDEX"])
+          shard_count = int(os.environ["SHARD_COUNT"])
+
+          cases = sorted(path for path in source.iterdir() if path.is_dir())
+          if len(cases) != 308:
+              raise RuntimeError(
+                  f"expected 308 PoseBusters cases, found {len(cases)}"
+              )
+
+          selected = [
+              path
+              for index, path in enumerate(cases)
+              if index % shard_count == shard_index
+          ]
+          if not selected:
+              raise RuntimeError(f"empty benchmark shard {shard_index}")
+
+          for path in selected:
+              shutil.copytree(path, target / path.name)
+
+          Path(".full-benchmark/shard-count.txt").write_text(
+              str(len(selected)),
+              encoding="utf-8",
+          )
+          print(
+              f"shard {shard_index}/{shard_count}: "
+              f"{len(selected)} cases"
+          )
+          PY
+
+      - name: Execute shard
+        run: |
+          COUNT="$(cat .full-benchmark/shard-count.txt)"
+          python benchmarks/posebusters/run_benchmark.py \
+            --dataset-root .full-benchmark/shard-dataset \
+            --output-root .full-benchmark/output \
+            --limit "$COUNT"
+
+      - name: Upload shard results
+        uses: actions/upload-artifact@v7
+        with:
+          name: posebusters-full-shard-${{ matrix.shard }}
+          path: |
+            .full-benchmark/output/engine_cases.json
+            .full-benchmark/output/evaluated_cases.json
+            .full-benchmark/output/summary.json
+            .full-benchmark/output/report.md
+            .full-benchmark/output/interaction_cases.json
+            .full-benchmark/output/interaction_summary.json
+            .full-benchmark/output/interaction_report.md
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate and record baseline
+    needs: dock-shards
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: posebusters-full-shard-*
+          path: .full-benchmark/shards
+
+      - name: Aggregate complete benchmark
+        run: |
+          python benchmarks/aggregate_shards.py \
+            --input-root .full-benchmark/shards \
+            --manifest benchmarks/posebusters/manifest.json \
+            --output-root .full-benchmark/aggregate
+
+          python benchmarks/posebusters/report.py \
+            --engine-cases .full-benchmark/aggregate/engine_cases.json \
+            --evaluated-cases .full-benchmark/aggregate/evaluated_cases.json \
+            --manifest benchmarks/posebusters/manifest.json \
+            --baseline benchmarks/posebusters/baselines/vina-paper.json \
+            --output .full-benchmark/aggregate/report.md
+
+      - name: Record repository-measured baseline
+        run: |
+          python benchmarks/regression.py record \
+            --summary .full-benchmark/aggregate/summary.json \
+            --engine-cases .full-benchmark/aggregate/engine_cases.json \
+            --manifest benchmarks/posebusters/manifest.json \
+            --source-commit "${GITHUB_SHA}" \
+            --output .full-benchmark/aggregate/engine-v1.json
+
+      - name: Upload complete baseline evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: posebusters-full-baseline
+          path: .full-benchmark/aggregate/
+          retention-days: 90
+
+      - name: Create measured-baseline PR
+        if: ${{ inputs.create_baseline_pr }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="benchmark/posebusters-measured-baseline-${GITHUB_RUN_ID}"
+          cp .full-benchmark/aggregate/engine-v1.json \
+            benchmarks/posebusters/baselines/engine-v1.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add benchmarks/posebusters/baselines/engine-v1.json
+          git commit -m "benchmark: record measured PoseBusters baseline"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Record measured PoseBusters benchmark baseline" \
+            --body "Generated from a complete 308-case sharded run of the pinned PoseBusters benchmark. The baseline values are measured engine output, not published-reference values."
