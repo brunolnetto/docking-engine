@@ -23,13 +23,12 @@ def digest_md5(path: Path) -> str:
     return checksum.hexdigest()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--destination", type=Path, required=True)
-    parser.add_argument("--keep-archive", action="store_true")
-    args = parser.parse_args()
-
-    destination = args.destination.resolve()
+def fetch_and_extract(
+    destination: Path,
+    *,
+    keep_archive: bool = False,
+) -> Path:
+    destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     archive = destination / "posebusters_paper_data.zip"
 
@@ -46,9 +45,22 @@ def main() -> int:
     with zipfile.ZipFile(archive) as handle:
         handle.extractall(destination)
 
-    if not args.keep_archive:
+    if not keep_archive:
         archive.unlink()
 
+    return destination
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--destination", type=Path, required=True)
+    parser.add_argument("--keep-archive", action="store_true")
+    args = parser.parse_args()
+
+    destination = fetch_and_extract(
+        args.destination,
+        keep_archive=args.keep_archive,
+    )
     print(destination)
     return 0
 
