@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from benchmarks.common import CaseResult, summarize, write_summary
-from benchmarks.evaluate_interactions import render_report as render_interaction_report
-from benchmarks.interactions import InteractionRecoveryMetrics, aggregate_metrics
+from benchmarks.interaction_summary import aggregate_family_rows, render_interaction_report
 
 
 def _load_cases(path: Path) -> list[dict[str, Any]]:
@@ -98,29 +97,28 @@ def aggregate_interactions(
             f"unexpected_interaction={unexpected_interaction}"
         )
 
-    successful_metrics = []
+    successful_families: list[list[dict[str, object]]] = []
     for row in rows:
         if row.get("completed") is not True:
             continue
         families = row.get("families")
-        if not isinstance(families, list):
+        if not isinstance(families, list) or not all(
+            isinstance(family, dict) for family in families
+        ):
             raise ValueError(
                 f"interaction case {row['case_id']} must contain a families list"
             )
-        successful_metrics.append(
-            tuple(InteractionRecoveryMetrics(**metric) for metric in families)
-        )
+        successful_families.append(families)
 
-    aggregate = aggregate_metrics(successful_metrics)
     total = len(rows)
-    evaluable = len(successful_metrics)
+    evaluable = len(successful_families)
     summary = {
         "total_cases": total,
         "interaction_evaluable_cases": evaluable,
         "interaction_evaluability_rate": (
             evaluable / total if total else None
         ),
-        "families": [metric.to_dict() for metric in aggregate],
+        "families": aggregate_family_rows(successful_families),
     }
     return rows, summary
 
