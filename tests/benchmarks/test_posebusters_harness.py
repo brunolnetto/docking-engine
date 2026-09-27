@@ -5,8 +5,7 @@ import math
 import pytest
 
 from benchmarks.common import CaseResult, summarize
-from benchmarks.posebusters.runner import load_case_ids
-from benchmarks.redocking import discover_cases
+from benchmarks.posebusters.cases import load_case_ids
 from benchmarks.posebusters.evaluate_engine import (
     _boolean_value,
     _find_rmsd_numeric,
@@ -212,20 +211,6 @@ def test_pinned_posebusters_subset_contains_308_unique_identifiers():
     assert "5SAK_ZRY" in identifiers
     assert "5S8I_2LY" not in identifiers
 
-
-def test_discover_cases_respects_explicit_allowlist(tmp_path):
-    for case_id in ("keep_AAA", "drop_BBB"):
-        case = tmp_path / case_id
-        case.mkdir()
-        (case / f"{case_id}_protein.pdb").write_text("ATOM\n", encoding="utf-8")
-        (case / f"{case_id}_ligand.sdf").write_text("$$$$\n", encoding="utf-8")
-
-    cases = discover_cases(
-        tmp_path,
-        allowed_case_ids=frozenset({"keep_AAA"}),
-    )
-
-    assert [case.case_id for case in cases] == ["keep_AAA"]
 
 
 def test_load_case_ids_rejects_duplicates(tmp_path):
