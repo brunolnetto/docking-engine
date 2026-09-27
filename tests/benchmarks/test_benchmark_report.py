@@ -139,3 +139,29 @@ def test_report_fallback_engine_rate_matches_fallback_counts():
 
     assert "| Engine-completed cases | 3/4 |" in rendered
     assert "| Engine execution success | 75.0% |" in rendered
+
+
+def test_report_fallback_prefers_persisted_engine_metrics():
+    summary = BenchmarkSummary(
+        benchmark="posebusters_benchmark_v1",
+        total_cases=2,
+        completed_cases=1,
+        execution_success_rate=0.5,
+        top1_rmsd_le_2a_rate=1.0,
+        pb_valid_rate=1.0,
+        combined_success_rate=1.0,
+        median_rmsd_angstrom=1.0,
+        median_runtime_seconds=1.0,
+        failures_by_stage={"evaluation": 1},
+        rmsd_evaluable_cases=1,
+        pb_evaluable_cases=1,
+        combined_evaluable_cases=1,
+        engine_completed_cases=2,
+        engine_execution_success_rate=1.0,
+    )
+
+    rendered = render_markdown(summary=summary, manifest=_manifest())
+
+    assert "| Engine-completed cases | 2/2 |" in rendered
+    assert "| Engine execution success | 100.0% |" in rendered
+    assert "| End-to-end evaluable cases | 1/2 |" in rendered
