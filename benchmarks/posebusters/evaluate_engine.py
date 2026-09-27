@@ -27,7 +27,7 @@ def _find_rmsd_numeric(row) -> float | None:
         name = _column_name(key).lower().replace("å", "a")
         if "rmsd" not in name:
             continue
-        if isinstance(value, bool):
+        if _boolean_value(value) is not None:
             continue
         try:
             return float(value)
