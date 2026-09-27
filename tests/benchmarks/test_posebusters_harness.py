@@ -228,9 +228,24 @@ def test_discover_cases_respects_explicit_allowlist(tmp_path):
     assert [case.case_id for case in cases] == ["keep_AAA"]
 
 
-def test_load_case_ids_rejects_duplicate_or_wrong_size(tmp_path):
+def test_load_case_ids_rejects_duplicates(tmp_path):
     path = tmp_path / "ids.txt"
     path.write_text("A\nA\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="contains duplicates"):
+        load_case_ids(path)
+
+
+def test_load_case_ids_supports_explicit_smoke_subset(tmp_path):
+    path = tmp_path / "ids.txt"
+    path.write_text("1iep_STI\n", encoding="utf-8")
+
+    assert load_case_ids(path, expected_count=None) == frozenset({"1iep_STI"})
+
+
+def test_load_case_ids_rejects_wrong_journal_subset_size(tmp_path):
+    path = tmp_path / "ids.txt"
+    path.write_text("A\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="exactly 308 unique"):
         load_case_ids(path)
