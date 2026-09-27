@@ -5,6 +5,8 @@ import math
 import pytest
 
 from benchmarks.common import CaseResult, summarize
+from benchmarks.posebusters.runner import load_case_ids
+from benchmarks.redocking import discover_cases
 from benchmarks.posebusters.evaluate_engine import (
     _boolean_value,
     _find_rmsd_numeric,
@@ -201,3 +203,34 @@ def test_combined_metric_excludes_missing_top1_rmsd():
     assert summary.rmsd_evaluable_cases == 0
     assert summary.combined_evaluable_cases == 0
     assert summary.combined_success_rate == 0.0
+
+
+def test_pinned_posebusters_subset_contains_308_unique_identifiers():
+    identifiers = load_case_ids()
+
+    assert len(identifiers) == 308
+    assert "5SAK_ZRY" in identifiers
+    assert "5S8I_2LY" not in identifiers
+
+
+def test_discover_cases_respects_explicit_allowlist(tmp_path):
+    for case_id in ("keep_AAA", "drop_BBB"):
+        case = tmp_path / case_id
+        case.mkdir()
+        (case / f"{case_id}_protein.pdb").write_text("ATOM\n", encoding="utf-8")
+        (case / f"{case_id}_ligand.sdf").write_text("$$$$\n", encoding="utf-8")
+
+    cases = discover_cases(
+        tmp_path,
+        allowed_case_ids=frozenset({"keep_AAA"}),
+    )
+
+    assert [case.case_id for case in cases] == ["keep_AAA"]
+
+
+def test_load_case_ids_rejects_duplicate_or_wrong_size(tmp_path):
+    path = tmp_path / "ids.txt"
+    path.write_text("A\nA\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="exactly 308 unique"):
+        load_case_ids(path)
