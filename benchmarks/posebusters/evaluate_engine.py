@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -126,6 +127,12 @@ def main() -> int:
         parser.error("--top-n must be >= 1")
 
     payload = json.loads(args.engine_cases.read_text(encoding="utf-8"))
+    engine_rows = payload["cases"]
+    engine_total = len(engine_rows)
+    engine_completed = sum(
+        row.get("completed") is True for row in engine_rows
+    )
+    engine_rate = engine_completed / engine_total if engine_total else None
     results = []
     for row in payload["cases"]:
         if not row.get("completed"):
@@ -168,7 +175,11 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
-    summary = summarize("posebusters_benchmark_v1", results)
+    summary = replace(
+        summarize("posebusters_benchmark_v1", results),
+        engine_completed_cases=engine_completed,
+        engine_execution_success_rate=engine_rate,
+    )
     write_summary(args.summary, summary)
     print(json.dumps(summary.to_dict(), indent=2, sort_keys=True))
     return 0
