@@ -73,6 +73,12 @@ def render_markdown(
         else summary.total_cases
     )
 
+    topn_rows = [
+        f"| Top-{n} RMSD ≤ 2 Å | {_pct(summary.topn_rmsd_le_2a_rates.get(str(n)) if scientific_available else None)} |"
+        for n in evaluation.get("top_n_values", [1, 3, 5, 9])
+        if n != 1
+    ]
+
     lines = [
         "# Docking Engine Benchmark Report",
         "",
@@ -116,6 +122,7 @@ def render_markdown(
         "| Metric | Result |",
         "| --- | ---: |",
         f"| Top-1 RMSD ≤ 2 Å | {_pct(top1_rate)} |",
+        *topn_rows,
         f"| PB-valid | {_pct(pb_rate)} |",
         f"| RMSD ≤ 2 Å and PB-valid | {_pct(combined_rate)} |",
         f"| Median Top-1 RMSD | {_number(summary.median_rmsd_angstrom, ' Å')} |",
@@ -204,7 +211,7 @@ def render_markdown(
             "",
             "## Limitations and next analyses",
             "",
-            "- Top-N pose-recovery is not yet included in this report.",
+            "- Top-N recovery measures whether any engine-ranked pose within the first N recovers the reference pose.",
             "- Interaction-fingerprint recovery against the crystal pose remains a later benchmark stage.",
             "- The first complete 308-case run establishes the repository's own regression baseline.",
             "",
