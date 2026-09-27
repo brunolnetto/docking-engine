@@ -26,11 +26,21 @@
     "receptor": {
       "rigid": true,
       "preparation": "meeko",
-      "preparation_version": "0.8.0"
+      "preparation_version": "0.8.0",
+      "parameters": {
+        "delete_bad_res": true,
+        "default_altloc": "A",
+        "forgive_extra_bonds": true
+      }
     },
     "ligand": {
       "preparation": "meeko",
-      "preparation_version": "0.8.0"
+      "preparation_version": "0.8.0",
+      "explicit_hydrogens": {
+        "method": "rdkit_add_hs",
+        "add_coords": true,
+        "note": "Hydrogens are added to the crystallographic SDF before Meeko preparation."
+      }
     },
     "docking": {
       "engine": "vina",

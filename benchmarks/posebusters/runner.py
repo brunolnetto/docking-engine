@@ -19,6 +19,10 @@ CONFIG = RedockingHarnessConfig(
     run_prefix="posebusters",
     worker_id="posebusters-benchmark",
     allowed_case_ids=load_case_ids(),
+    add_ligand_hydrogens=True,
+    receptor_delete_bad_res=True,
+    receptor_default_altloc="A",
+    receptor_forgive_extra_bonds=True,
 )
 
 

@@ -49,6 +49,10 @@ class RedockingHarnessConfig:
     num_modes: int = 9
     energy_range: float = 3.0
     allowed_case_ids: frozenset[str] | None = None
+    add_ligand_hydrogens: bool = False
+    receptor_delete_bad_res: bool = False
+    receptor_default_altloc: str | None = None
+    receptor_forgive_extra_bonds: bool = False
 
 
 class BenchmarkStageError(RuntimeError):
@@ -109,6 +113,29 @@ def crystal_ligand_center(path: Path) -> tuple[float, float, float]:
     )
 
 
+
+def ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
+    supplier = Chem.SDMolSupplier(str(path), removeHs=False)
+    molecule = next((mol for mol in supplier if mol is not None), None)
+    if molecule is None:
+        raise RuntimeError(f"cannot read crystal ligand: {path}")
+    molecule = Chem.AddHs(molecule, addCoords=True)
+    return (Chem.MolToMolBlock(molecule) + "\n$$\n").encode("utf-8")
+
+
+def receptor_preparation_parameters(
+    config: RedockingHarnessConfig,
+) -> dict[str, object]:
+    parameters: dict[str, object] = {}
+    if config.receptor_delete_bad_res:
+        parameters["delete_bad_res"] = True
+    if config.receptor_default_altloc is not None:
+        parameters["default_altloc"] = config.receptor_default_altloc
+    if config.receptor_forgive_extra_bonds:
+        parameters["forgive_extra_bonds"] = True
+    return parameters
+
+
 def make_spec(
     case: BenchmarkCase,
     config: RedockingHarnessConfig,
@@ -117,12 +144,17 @@ def make_spec(
     receptor_protocol = ReceptorPreparationProtocol(
         method="meeko",
         method_version=config.meeko_version,
-        parameters={},
+        parameters=receptor_preparation_parameters(config),
     )
     ligand_protocol = LigandPreparationProtocol(
         method="meeko",
         method_version=config.meeko_version,
         parameters={},
+    )
+    ligand_content = (
+        ligand_content_with_explicit_hydrogens(case.ligand)
+        if config.add_ligand_hydrogens
+        else case.ligand.read_bytes()
     )
     protocol = DockingProtocol(
         backend="vina",
@@ -159,7 +191,7 @@ def make_spec(
             LigandPreparationRequest(
                 ligand_id=case.case_id,
                 source_format="sdf",
-                content=case.ligand.read_bytes(),
+                content=ligand_content,
                 protocol=ligand_protocol,
             ),
         ),

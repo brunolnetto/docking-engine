@@ -82,6 +82,10 @@ def build_baseline(
         )
     if engine_rate is None:
         raise ValueError("cannot baseline an empty engine run")
+    if completed == 0:
+        raise ValueError(
+            "cannot establish a baseline with zero successful engine cases"
+        )
 
     required_rates = (
         "top1_rmsd_le_2a_rate",
@@ -100,6 +104,15 @@ def build_baseline(
     ):
         if not isinstance(value, int) or isinstance(value, bool):
             raise ValueError(f"summary missing integer metric: {name}")
+    if completed_cases == 0:
+        raise ValueError(
+            "cannot establish a baseline with zero end-to-end evaluable cases"
+        )
+    if rmsd_evaluable == 0 or pb_evaluable == 0 or combined_evaluable == 0:
+        raise ValueError(
+            "cannot establish a baseline without RMSD, PB-valid and combined "
+            "evaluable cases"
+        )
     for name in required_rates:
         value = summary.get(name)
         if not isinstance(value, (int, float)) or isinstance(value, bool):
