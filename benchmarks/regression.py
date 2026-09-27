@@ -11,6 +11,10 @@ from typing import Any
 SCHEMA_VERSION = 1
 DEFAULT_THRESHOLDS = {
     "engine_execution_success_rate": 0.01,
+    "end_to_end_evaluability_rate": 0.01,
+    "rmsd_evaluable_rate": 0.01,
+    "pb_evaluable_rate": 0.01,
+    "combined_evaluable_rate": 0.01,
     "top1_rmsd_le_2a_rate": 0.02,
     "combined_success_rate": 0.02,
 }
@@ -83,6 +87,18 @@ def build_baseline(
         "combined_success_rate",
         "pb_valid_rate",
     )
+    completed_cases = summary.get("completed_cases")
+    rmsd_evaluable = summary.get("rmsd_evaluable_cases")
+    pb_evaluable = summary.get("pb_evaluable_cases")
+    combined_evaluable = summary.get("combined_evaluable_cases")
+    for name, value in (
+        ("completed_cases", completed_cases),
+        ("rmsd_evaluable_cases", rmsd_evaluable),
+        ("pb_evaluable_cases", pb_evaluable),
+        ("combined_evaluable_cases", combined_evaluable),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"summary missing integer metric: {name}")
     for name in required_rates:
         value = summary.get(name)
         if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -98,6 +114,10 @@ def build_baseline(
         "metrics": {
             "engine_execution_success_rate": engine_rate,
             "engine_completed_cases": completed,
+            "end_to_end_evaluability_rate": completed_cases / expected_cases,
+            "rmsd_evaluable_rate": rmsd_evaluable / expected_cases,
+            "pb_evaluable_rate": pb_evaluable / expected_cases,
+            "combined_evaluable_rate": combined_evaluable / expected_cases,
             "top1_rmsd_le_2a_rate": float(summary["top1_rmsd_le_2a_rate"]),
             "pb_valid_rate": float(summary["pb_valid_rate"]),
             "combined_success_rate": float(summary["combined_success_rate"]),
@@ -142,6 +162,10 @@ def compare(
 
     current_metrics = {
         "engine_execution_success_rate": engine_rate,
+        "end_to_end_evaluability_rate": summary.get("completed_cases", 0) / total,
+        "rmsd_evaluable_rate": summary.get("rmsd_evaluable_cases", 0) / total,
+        "pb_evaluable_rate": summary.get("pb_evaluable_cases", 0) / total,
+        "combined_evaluable_rate": summary.get("combined_evaluable_cases", 0) / total,
         "top1_rmsd_le_2a_rate": summary.get("top1_rmsd_le_2a_rate"),
         "combined_success_rate": summary.get("combined_success_rate"),
     }
