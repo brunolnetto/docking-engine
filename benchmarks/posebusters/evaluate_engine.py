@@ -89,17 +89,22 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
     if full.empty:
         raise RuntimeError("PoseBusters returned an empty report")
 
-    pose_rmsds = []
-    pose_validity = []
+    pose_rmsds: list[float | None] = []
+    pose_validity: list[bool | None] = []
     for position, (_, full_row) in enumerate(full.iterrows(), start=1):
         rmsd = _find_rmsd_numeric(full_row)
-        if rmsd is None:
+        if position == 1 and rmsd is None:
             raise RuntimeError(
                 "PoseBusters full report did not expose numeric RMSD "
-                f"for ranked pose {position}"
+                "for ranked pose 1"
             )
         pose_rmsds.append(rmsd)
-        pose_validity.append(_physical_validity(full_row))
+        try:
+            pose_validity.append(_physical_validity(full_row))
+        except RuntimeError:
+            if position == 1:
+                raise
+            pose_validity.append(None)
 
     return CaseResult(
         case_id=str(row["case_id"]),
@@ -113,6 +118,7 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
         ),
         pose_rmsd_angstroms=tuple(pose_rmsds),
         pose_pb_valid=tuple(pose_validity),
+        pose_evaluation_limit=top_n,
     )
 
 
