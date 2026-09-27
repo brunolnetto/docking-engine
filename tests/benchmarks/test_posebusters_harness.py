@@ -182,3 +182,22 @@ def test_top_n_preserves_known_success_before_missing_rank():
 
     assert row.top_n_rmsd_success(2) is None
     assert row.top_n_rmsd_success(3) is True
+
+
+def test_combined_metric_excludes_missing_top1_rmsd():
+    summary = summarize(
+        "pb",
+        (
+            CaseResult(
+                case_id="missing-top1",
+                completed=True,
+                pb_valid=True,
+                pose_rmsd_angstroms=(None, 1.5),
+                pose_evaluation_limit=2,
+            ),
+        ),
+    )
+
+    assert summary.rmsd_evaluable_cases == 0
+    assert summary.combined_evaluable_cases == 0
+    assert summary.combined_success_rate == 0.0
