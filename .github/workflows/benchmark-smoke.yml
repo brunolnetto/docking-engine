@@ -1,0 +1,81 @@
+name: Benchmark Smoke
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/**"
+      - "src/moldock/**"
+      - "pyproject.toml"
+      - ".github/workflows/benchmark-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  posebusters-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[benchmark]"
+          python - <<'PY'
+          import meeko
+          import posebusters
+          import scipy
+          import gemmi
+          print("Meeko", getattr(meeko, "__version__", "unknown"))
+          print("PoseBusters", getattr(posebusters, "__version__", "unknown"))
+          print("SciPy", scipy.__version__)
+          print("Gemmi", gemmi.__version__)
+          PY
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Prepare one-case benchmark fixture
+        run: |
+          mkdir -p .benchmark-smoke/dataset/1iep_STI
+          cp examples/fixtures/1iep_receptorH.pdb \
+            .benchmark-smoke/dataset/1iep_STI/1iep_STI_protein.pdb
+          cp examples/fixtures/1iep_ligand.sdf \
+            .benchmark-smoke/dataset/1iep_STI/1iep_STI_ligand.sdf
+
+      - name: Execute engine and PoseBusters evaluation
+        run: |
+          python benchmarks/posebusters/run_benchmark.py \
+            --dataset-root .benchmark-smoke/dataset \
+            --output-root .benchmark-smoke/output \
+            --limit 1
+
+      - name: Validate benchmark artifacts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".benchmark-smoke/output")
+          summary = json.loads((root / "summary.json").read_text())
+          cases = json.loads((root / "evaluated_cases.json").read_text())["cases"]
+
+          assert summary["total_cases"] == 1
+          assert summary["completed_cases"] == 1, cases
+          assert summary["execution_success_rate"] == 1.0
+          assert len(cases) == 1
+          assert cases[0]["rmsd_angstrom"] is not None
+          assert isinstance(cases[0]["pb_valid"], bool)
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload smoke output
+        uses: actions/upload-artifact@v7
+        with:
+          name: posebusters-smoke
+          path: .benchmark-smoke/output/
+          retention-days: 7
