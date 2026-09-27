@@ -1,0 +1,47 @@
+{
+  "benchmark": "posebusters_benchmark_v1",
+  "dataset": {
+    "zenodo_record": "8278563",
+    "archive": "posebusters_paper_data.zip",
+    "archive_url": "https://zenodo.org/records/8278563/files/posebusters_paper_data.zip",
+    "archive_md5": "f004ac7c4e68317b5348497d2bb6bee6",
+    "subset_directory": "posebusters_benchmark_set",
+    "paper_case_count": 308
+  },
+  "protocol": {
+    "task": "cognate_ligand_redocking",
+    "search_space": {
+      "shape": "cube",
+      "side_angstrom": 25.0,
+      "center": "geometric_center_of_crystal_ligand_heavy_atoms"
+    },
+    "receptor": {
+      "rigid": true,
+      "preparation": "meeko",
+      "preparation_version": "0.8.0"
+    },
+    "ligand": {
+      "preparation": "meeko",
+      "preparation_version": "0.8.0"
+    },
+    "docking": {
+      "engine": "vina",
+      "engine_version": "1.2.7",
+      "seed": 42,
+      "exhaustiveness": 8,
+      "num_modes": 9,
+      "energy_range": 3.0
+    },
+    "evaluation": {
+      "posebusters_version": "0.6.5",
+      "config": "redock",
+      "top1_rmsd_threshold_angstrom": 2.0
+    }
+  },
+  "published_reference": {
+    "method": "AutoDock Vina",
+    "paper": "Buttenschoen et al., Chemical Science 2024, DOI 10.1039/D3SC04185A",
+    "top1_rmsd_le_2a_rate_approx": 0.58,
+    "note": "Approximate paper reference. Treat as directly comparable only when the complete published protocol is reproduced."
+  }
+}
