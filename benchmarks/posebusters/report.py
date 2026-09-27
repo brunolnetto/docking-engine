@@ -219,7 +219,7 @@ def render_markdown(
             "",
             "- Top-N recovery measures whether any engine-ranked pose within the first N recovers the reference pose.",
             "- Interaction-fingerprint recovery against the crystal pose remains a later benchmark stage.",
-            "- The first complete 308-case run establishes the repository's own regression baseline.",
+            f"- The first complete {dataset.get('paper_case_count', 'manifest-sized')}-case run establishes the repository's own regression baseline.",
             "",
         ]
     )
