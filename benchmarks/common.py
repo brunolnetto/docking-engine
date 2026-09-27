@@ -53,6 +53,9 @@ class BenchmarkSummary:
     median_rmsd_angstrom: float | None
     median_runtime_seconds: float | None
     failures_by_stage: dict[str, int]
+    rmsd_evaluable_cases: int = 0
+    pb_evaluable_cases: int = 0
+    combined_evaluable_cases: int = 0
     topn_rmsd_le_2a_rates: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
@@ -69,6 +72,9 @@ def summarize(
     completed = tuple(row for row in rows if row.completed)
     rmsd_rows = tuple(row for row in completed if row.ranked_rmsds)
     pb_rows = tuple(row for row in completed if row.pb_valid is not None)
+    combined_rows = tuple(
+        row for row in completed if row.ranked_rmsds and row.pb_valid is not None
+    )
 
     failures: dict[str, int] = {}
     for row in rows:
@@ -105,13 +111,16 @@ def summarize(
             else 0.0
         ),
         combined_success_rate=(
-            sum(row.combined_success for row in pb_rows) / len(pb_rows)
-            if pb_rows
+            sum(row.combined_success for row in combined_rows) / len(combined_rows)
+            if combined_rows
             else 0.0
         ),
         median_rmsd_angstrom=median(rmsds) if rmsds else None,
         median_runtime_seconds=median(runtimes) if runtimes else None,
         failures_by_stage=dict(sorted(failures.items())),
+        rmsd_evaluable_cases=len(rmsd_rows),
+        pb_evaluable_cases=len(pb_rows),
+        combined_evaluable_cases=len(combined_rows),
         topn_rmsd_le_2a_rates=topn_rates,
     )
 
