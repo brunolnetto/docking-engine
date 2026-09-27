@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 benchmark = [
     "duckdb>=1.5.5,<1.6",
     "gemmi>=0.7,<0.8",
-    "meeko>=0.8,<0.9",
+    "meeko==0.8.0",
     "posebusters==0.6.5",
     "pytz>=2024.1",
     "scipy>=1.14,<2",
