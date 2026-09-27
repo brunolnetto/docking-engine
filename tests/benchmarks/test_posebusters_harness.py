@@ -113,3 +113,22 @@ def test_boolean_value_accepts_numpy_style_bool(type_name):
     )
 
     assert _boolean_value(BoolLike()) is True
+
+
+
+def test_find_rmsd_numeric_skips_numpy_boolean_check():
+    BoolLike = type(
+        "bool",
+        (),
+        {
+            "__module__": "numpy",
+            "__bool__": lambda self: True,
+            "__float__": lambda self: 1.0,
+        },
+    )
+    row = {
+        ("rmsd", "rmsd_<=_2A"): BoolLike(),
+        ("rmsd", "rmsd"): 2.345,
+    }
+
+    assert _find_rmsd_numeric(row) == pytest.approx(2.345)
