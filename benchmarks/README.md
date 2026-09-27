@@ -48,3 +48,18 @@ posebusters_benchmark_set/
 ```
 
 See `posebusters/specification.md` for the protocol and acceptance criteria.
+
+## Benchmark outputs
+
+A PoseBusters benchmark run writes three machine-readable artifacts and one
+scientist-facing artifact:
+
+- `engine_cases.json` — engine execution outcome and failure stage per case
+- `evaluated_cases.json` — reference-pose RMSD and PB-valid result per evaluable case
+- `summary.json` — aggregate scientific and engine metrics
+- `report.md` — human-readable benchmark report with protocol, results,
+  failure accounting, provenance and interpretation guardrails
+
+The report deliberately keeps the published Vina result as contextual
+reference metadata. It does not compute a regression delta against that value
+unless protocol equivalence has been established.
