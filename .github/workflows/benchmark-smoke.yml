@@ -67,6 +67,8 @@ jobs:
           root = Path(".benchmark-smoke/astex-output")
           summary = json.loads((root / "summary.json").read_text())
           report = (root / "report.md").read_text()
+          interaction = json.loads((root / "interaction_summary.json").read_text())
+          interaction_report = (root / "interaction_report.md").read_text()
 
           assert summary["benchmark"] == "astex_diverse_v1"
           assert summary["total_cases"] == 1
@@ -94,6 +96,9 @@ jobs:
           assert "## Scientific quality" in report
           assert "## Engine quality" in report
           assert "Published Vina Top-1 RMSD" in report
+          assert interaction["interaction_evaluable_cases"] == 1
+          assert {row["kind"] for row in interaction["families"]} == {"contact", "hydrophobic_contact", "hydrogen_bond", "salt_bridge"}
+          assert "## Semantics" in interaction_report
           print(json.dumps(summary, indent=2, sort_keys=True))
           PY
 
