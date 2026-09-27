@@ -1,0 +1,100 @@
+name: PoseBusters Preparation Canary
+
+on:
+  push:
+    branches:
+      - benchmark/posebusters-preparation-canary
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install benchmark toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[benchmark]"
+          sudo curl -fsSL -o /usr/local/bin/vina \
+            https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64
+          sudo chmod +x /usr/local/bin/vina
+
+      - name: Fetch pinned PoseBusters dataset
+        run: |
+          python benchmarks/posebusters/fetch_dataset.py \
+            --destination .canary/dataset
+
+      - name: Select known preparation-failure cases
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          extracted = Path(".canary/dataset")
+          matches = [
+              path for path in extracted.rglob("posebusters_benchmark_set")
+              if path.is_dir()
+          ]
+          if len(matches) != 1:
+              raise RuntimeError(
+                  f"expected one PoseBusters benchmark directory, found {len(matches)}"
+              )
+          source = matches[0]
+          target = Path(".canary/cases")
+          target.mkdir(parents=True, exist_ok=True)
+          identifiers = ("5SAK_ZRY", "6YJA_2BA")
+          for case_id in identifiers:
+              shutil.copytree(source / case_id, target / case_id)
+          Path(".canary/case_ids.txt").write_text(
+              "\n".join(identifiers) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Execute two-case canary
+        run: |
+          python benchmarks/posebusters/run_benchmark.py \
+            --dataset-root .canary/cases \
+            --output-root .canary/output \
+            --limit 2 \
+            --case-ids-file .canary/case_ids.txt
+
+      - name: Require both engine cases to complete
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          rows = json.loads(
+              Path(".canary/output/engine_cases.json").read_text()
+          )["cases"]
+          failures = [
+              {
+                  "case_id": row.get("case_id"),
+                  "failure_stage": row.get("failure_stage"),
+                  "error": row.get("error"),
+              }
+              for row in rows
+              if row.get("completed") is not True
+          ]
+          if failures:
+              raise RuntimeError(f"PoseBusters preparation canary failed: {failures}")
+          assert len(rows) == 2
+          print("Both preparation canaries completed engine docking.")
+          PY
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: posebusters-preparation-canary
+          path: .canary/output/
+          retention-days: 14
