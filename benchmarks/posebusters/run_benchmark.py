@@ -27,6 +27,7 @@ def main() -> int:
     report = args.output_root / "report.md"
     interaction_cases = args.output_root / "interaction_cases.json"
     interaction_summary = args.output_root / "interaction_summary.json"
+    interaction_report = args.output_root / "interaction_report.md"
 
     runner = [
         sys.executable,
@@ -78,11 +79,14 @@ def main() -> int:
             str(interaction_cases),
             "--summary",
             str(interaction_summary),
+            "--report",
+            str(interaction_report),
         ]
     )
     print(summary)
     print(report)
     print(interaction_summary)
+    print(interaction_report)
     return 0
 
 
