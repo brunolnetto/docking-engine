@@ -13,11 +13,20 @@ quality gate.
 
 Primary source: Zenodo record 8278563, `posebusters_paper_data.zip`.
 
-The Chemical Science benchmark analysis uses 308 recent protein-ligand
-complexes for the PoseBusters Benchmark set. The archive also contains
-additional paper data, so the benchmark runner must validate the selected
-case count rather than assuming every extracted directory belongs to the
-308-case evaluation subset.
+The downloadable PoseBusters benchmark archive contains 428 protein-ligand
+complexes. During journal peer review, crystal-contact issues were identified
+in part of that set, and the Chemical Science results were reported on a
+curated 308-complex subset.
+
+The 308-case benchmark identity is therefore defined by the explicit
+`posebusters_pdb_ccd_ids.txt` allowlist pinned in this repository, not by
+directory layout or by taking the first 308 cases. The allowlist is mirrored
+from `BioinfoMachineLearning/PoseBench` at commit
+`d2eeef8f2272d730d572ac22f3b25d48dc47966e`, which mirrors the identifiers
+linked by Zenodo record 8278563.
+
+The runner and sharded workflow must reject missing allowlisted cases,
+duplicate identifiers, or an allowlist whose cardinality is not exactly 308.
 
 Expected case layout:
 

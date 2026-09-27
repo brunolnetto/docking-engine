@@ -5,6 +5,7 @@ import math
 import pytest
 
 from benchmarks.common import CaseResult, summarize
+from benchmarks.posebusters.cases import load_case_ids
 from benchmarks.posebusters.evaluate_engine import (
     _boolean_value,
     _find_rmsd_numeric,
@@ -201,3 +202,35 @@ def test_combined_metric_excludes_missing_top1_rmsd():
     assert summary.rmsd_evaluable_cases == 0
     assert summary.combined_evaluable_cases == 0
     assert summary.combined_success_rate == 0.0
+
+
+def test_pinned_posebusters_subset_contains_308_unique_identifiers():
+    identifiers = load_case_ids()
+
+    assert len(identifiers) == 308
+    assert "5SAK_ZRY" in identifiers
+    assert "5S8I_2LY" not in identifiers
+
+
+
+def test_load_case_ids_rejects_duplicates(tmp_path):
+    path = tmp_path / "ids.txt"
+    path.write_text("A\nA\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="contains duplicates"):
+        load_case_ids(path)
+
+
+def test_load_case_ids_supports_explicit_smoke_subset(tmp_path):
+    path = tmp_path / "ids.txt"
+    path.write_text("1iep_STI\n", encoding="utf-8")
+
+    assert load_case_ids(path, expected_count=None) == frozenset({"1iep_STI"})
+
+
+def test_load_case_ids_rejects_wrong_journal_subset_size(tmp_path):
+    path = tmp_path / "ids.txt"
+    path.write_text("A\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="exactly 308 unique"):
+        load_case_ids(path)

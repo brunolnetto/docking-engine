@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--case-ids-file", type=Path)
     args = parser.parse_args()
 
     args.output_root.mkdir(parents=True, exist_ok=True)
@@ -39,6 +40,8 @@ def main() -> int:
     ]
     if args.limit is not None:
         runner.extend(["--limit", str(args.limit)])
+    if args.case_ids_file is not None:
+        runner.extend(["--case-ids-file", str(args.case_ids_file)])
     run(runner)
 
     run(
