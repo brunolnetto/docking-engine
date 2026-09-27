@@ -1,0 +1,103 @@
+name: Recover PoseBusters Baseline
+
+on:
+  push:
+    branches:
+      - benchmark/recover-posebusters-36346501638
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Download preserved shard artifacts
+        uses: actions/download-artifact@v7
+        with:
+          repository: ${{ github.repository }}
+          run-id: 36346501638
+          github-token: ${{ github.token }}
+          pattern: posebusters-full-shard-*
+          path: .full-benchmark/shards
+
+      - name: Aggregate preserved benchmark evidence
+        run: |
+          python benchmarks/aggregate_shards.py \
+            --input-root .full-benchmark/shards \
+            --manifest benchmarks/posebusters/manifest.json \
+            --output-root .full-benchmark/aggregate
+
+          python benchmarks/posebusters/report.py \
+            --engine-cases .full-benchmark/aggregate/engine_cases.json \
+            --evaluated-cases .full-benchmark/aggregate/evaluated_cases.json \
+            --manifest benchmarks/posebusters/manifest.json \
+            --baseline benchmarks/posebusters/baselines/vina-paper.json \
+            --output .full-benchmark/aggregate/report.md
+
+      - name: Record measured engine baseline
+        run: |
+          python benchmarks/regression.py record \
+            --summary .full-benchmark/aggregate/summary.json \
+            --engine-cases .full-benchmark/aggregate/engine_cases.json \
+            --manifest benchmarks/posebusters/manifest.json \
+            --source-commit "5a32f232524f13f9227e7e43ba3717c8305247f2" \
+            --output .full-benchmark/aggregate/engine-v1.json
+
+      - name: Validate recovered evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".full-benchmark/aggregate")
+          engine = json.loads((root / "engine_cases.json").read_text())["cases"]
+          evaluated = json.loads((root / "evaluated_cases.json").read_text())["cases"]
+          interactions = json.loads((root / "interaction_cases.json").read_text())["cases"]
+          baseline = json.loads((root / "engine-v1.json").read_text())
+
+          assert len(engine) == 308
+          assert len(evaluated) == 308
+          assert len(interactions) == 308
+          assert len({row["case_id"] for row in engine}) == 308
+          assert {row["case_id"] for row in engine} == {row["case_id"] for row in evaluated}
+          assert {row["case_id"] for row in engine} == {row["case_id"] for row in interactions}
+          assert baseline["kind"] == "repository_measured_baseline"
+          assert baseline["case_count"] == 308
+          assert baseline["source_commit"] == "5a32f232524f13f9227e7e43ba3717c8305247f2"
+          PY
+
+      - name: Upload recovered complete baseline evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: posebusters-full-baseline-recovered
+          path: .full-benchmark/aggregate/
+          retention-days: 90
+
+      - name: Create measured-baseline PR from clean main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp .full-benchmark/aggregate/engine-v1.json /tmp/engine-v1.json
+          BRANCH="benchmark/posebusters-measured-baseline-36346501638"
+          git fetch origin main
+          git checkout -B "$BRANCH" origin/main
+          cp /tmp/engine-v1.json benchmarks/posebusters/baselines/engine-v1.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/posebusters/baselines/engine-v1.json
+          git commit -m "benchmark: record measured PoseBusters baseline"
+          git push --force-with-lease origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Record measured PoseBusters benchmark baseline" \
+            --body "Recovered from the successful 16-shard scientific execution in workflow run 36346501638. All 308 pinned journal-subset cases were aggregated from preserved artifacts; no docking was recomputed."
