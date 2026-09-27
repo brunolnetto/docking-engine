@@ -25,6 +25,9 @@ def main() -> int:
     evaluated_cases = args.output_root / "evaluated_cases.json"
     summary = args.output_root / "summary.json"
     report = args.output_root / "report.md"
+    interaction_cases = args.output_root / "interaction_cases.json"
+    interaction_summary = args.output_root / "interaction_summary.json"
+    interaction_report = args.output_root / "interaction_report.md"
 
     runner = [
         sys.executable,
@@ -66,8 +69,24 @@ def main() -> int:
             str(report),
         ]
     )
+    run(
+        [
+            sys.executable,
+            str(HERE.parent / "evaluate_interactions.py"),
+            "--engine-cases",
+            str(engine_cases),
+            "--output",
+            str(interaction_cases),
+            "--summary",
+            str(interaction_summary),
+            "--report",
+            str(interaction_report),
+        ]
+    )
     print(summary)
     print(report)
+    print(interaction_summary)
+    print(interaction_report)
     return 0
 
 
