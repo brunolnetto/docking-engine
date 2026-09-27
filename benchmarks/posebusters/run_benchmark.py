@@ -24,6 +24,7 @@ def main() -> int:
     engine_cases = args.output_root / "engine_cases.json"
     evaluated_cases = args.output_root / "evaluated_cases.json"
     summary = args.output_root / "summary.json"
+    report = args.output_root / "report.md"
 
     runner = [
         sys.executable,
@@ -49,7 +50,22 @@ def main() -> int:
             str(summary),
         ]
     )
+    run(
+        [
+            sys.executable,
+            str(HERE / "report.py"),
+            "--evaluated-cases",
+            str(evaluated_cases),
+            "--manifest",
+            str(HERE / "manifest.json"),
+            "--baseline",
+            str(HERE / "baselines" / "vina-paper.json"),
+            "--output",
+            str(report),
+        ]
+    )
     print(summary)
+    print(report)
     return 0
 
 
