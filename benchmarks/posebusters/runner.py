@@ -42,6 +42,17 @@ VINA_VERSION = "1.2.7"
 BOX_SIDE_ANGSTROM = 25.0
 
 
+class BenchmarkStageError(RuntimeError):
+    def __init__(self, stage: str, cause: Exception | str) -> None:
+        self.stage = stage
+        message = (
+            f"{type(cause).__name__}: {cause}"
+            if isinstance(cause, Exception)
+            else str(cause)
+        )
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class BenchmarkCase:
     case_id: str
@@ -148,7 +159,10 @@ def run_case(case: BenchmarkCase, output_root: Path) -> dict[str, object]:
     artifacts = DuckLakeArtifactRepository(catalog_path=catalog, data_path=data)
     science = DuckLakeScientificResultRepository(catalog_path=catalog, data_path=data)
     runs = DuckLakeRunManifestRepository(catalog_path=catalog, data_path=data)
-    spec = make_spec(case)
+    try:
+        spec = make_spec(case)
+    except Exception as exc:
+        raise BenchmarkStageError("dataset", exc) from exc
 
     try:
         interpreter = VinaResultInterpreter(
@@ -169,7 +183,18 @@ def run_case(case: BenchmarkCase, output_root: Path) -> dict[str, object]:
             toolchain_preflight=VinaMeekoToolchainPreflight(),
             run_manifest_repository=runs,
         )
-        pipeline.run(spec)
+        try:
+            pipeline.run(spec)
+        except Exception as exc:
+            name = type(exc).__name__
+            if "Preparation" in name or name.startswith("Meeko"):
+                stage = "preparation"
+            elif "DockingBackend" in name or "Vina" in name:
+                stage = "docking"
+            else:
+                stage = "engine"
+            raise BenchmarkStageError(stage, exc) from exc
+
         report = PipelineReportBuilder(
             task_repository=tasks,
             artifact_repository=artifacts,
@@ -177,26 +202,31 @@ def run_case(case: BenchmarkCase, output_root: Path) -> dict[str, object]:
         ).build_for_run(spec.run_id, run_manifest_repository=runs)
 
         task_report = report.tasks[0]
-        if not task_report.artifact_ids:
-            raise RuntimeError("docking completed without a pose artifact")
-        artifact = artifacts.get(task_report.artifact_ids[-1])
-        if artifact is None:
-            raise RuntimeError("pose artifact metadata is missing")
-        pdbqt = artifact_store.read(artifact.uri)
-        predicted_pdbqt = workspace / "predicted.pdbqt"
-        predicted_sdf = workspace / "predicted.sdf"
-        predicted_pdbqt.write_bytes(pdbqt)
-        subprocess.run(
-            [
-                "mk_export.py",
-                str(predicted_pdbqt),
-                "-s",
-                str(predicted_sdf),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            if not task_report.artifact_ids:
+                raise RuntimeError(
+                    "docking completed without a pose artifact"
+                )
+            artifact = artifacts.get(task_report.artifact_ids[-1])
+            if artifact is None:
+                raise RuntimeError("pose artifact metadata is missing")
+            pdbqt = artifact_store.read(artifact.uri)
+            predicted_pdbqt = workspace / "predicted.pdbqt"
+            predicted_sdf = workspace / "predicted.sdf"
+            predicted_pdbqt.write_bytes(pdbqt)
+            subprocess.run(
+                [
+                    "mk_export.py",
+                    str(predicted_pdbqt),
+                    "-s",
+                    str(predicted_sdf),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except Exception as exc:
+            raise BenchmarkStageError("export", exc) from exc
         return {
             "case_id": case.case_id,
             "completed": True,
@@ -236,6 +266,16 @@ def main() -> int:
     for case in cases:
         try:
             rows.append(run_case(case, args.output_root))
+        except BenchmarkStageError as exc:
+            rows.append(
+                {
+                    "case_id": case.case_id,
+                    "completed": False,
+                    "failure_stage": exc.stage,
+                    "error": str(exc),
+                    "runtime_seconds": None,
+                }
+            )
         except Exception as exc:
             rows.append(
                 {
