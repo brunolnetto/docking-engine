@@ -65,11 +65,13 @@ def compare_family(
     precision = tp / (tp + fp) if tp + fp else None
     recall = tp / (tp + fn) if tp + fn else None
     f1 = (
-        2 * precision * recall / (precision + recall)
-        if precision is not None
-        and recall is not None
-        and precision + recall
-        else None
+        None
+        if precision is None or recall is None
+        else (
+            0.0
+            if precision + recall == 0
+            else 2 * precision * recall / (precision + recall)
+        )
     )
     union = len(reference_family | predicted_family)
     jaccard = tp / union if union else None
