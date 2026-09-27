@@ -87,7 +87,10 @@ def summarize(
     )
     pb_rows = tuple(row for row in completed if row.pb_valid is not None)
     combined_rows = tuple(
-        row for row in completed if row.ranked_rmsds and row.pb_valid is not None
+        row
+        for row in completed
+        if row.top_n_rmsd_success(1) is not None
+        and row.pb_valid is not None
     )
 
     failures: dict[str, int] = {}
