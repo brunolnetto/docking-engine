@@ -182,3 +182,36 @@ def test_compare_accepts_exact_documented_drop_boundary():
     )
     assert top1["delta"] == pytest.approx(-0.02)
     assert top1["passed"] is True
+
+
+def test_build_baseline_rejects_zero_engine_successes():
+    with pytest.raises(ValueError, match="zero successful engine cases"):
+        build_baseline(
+            summary=_summary(completed=0, rmsd_evaluable=0, pb_evaluable=0, combined_evaluable=0),
+            engine_cases=_engine(successes=0),
+            manifest=_manifest(),
+            manifest_digest="abc",
+            source_commit="deadbeef",
+        )
+
+
+def test_build_baseline_rejects_zero_evaluable_scientific_cases():
+    with pytest.raises(ValueError, match="zero end-to-end evaluable cases"):
+        build_baseline(
+            summary=_summary(completed=0, rmsd_evaluable=0, pb_evaluable=0, combined_evaluable=0),
+            engine_cases=_engine(successes=4),
+            manifest=_manifest(),
+            manifest_digest="abc",
+            source_commit="deadbeef",
+        )
+
+
+def test_build_baseline_requires_each_scientific_evaluable_denominator():
+    with pytest.raises(ValueError, match="without RMSD, PB-valid and combined"):
+        build_baseline(
+            summary=_summary(completed=4, rmsd_evaluable=4, pb_evaluable=0, combined_evaluable=0),
+            engine_cases=_engine(successes=4),
+            manifest=_manifest(),
+            manifest_digest="abc",
+            source_commit="deadbeef",
+        )
