@@ -67,11 +67,7 @@ def render_markdown(
     engine_completed = (
         engine_completed_cases
         if engine_completed_cases is not None
-        else (
-            summary.engine_completed_cases
-            if summary.engine_completed_cases is not None
-            else summary.completed_cases
-        )
+        else summary.completed_cases
     )
     engine_total = (
         engine_total_cases
@@ -81,15 +77,11 @@ def render_markdown(
     effective_engine_rate = (
         engine_success_rate
         if engine_success_rate is not None
-        else (
-            summary.engine_execution_success_rate
-            if summary.engine_execution_success_rate is not None
-            else (engine_completed / engine_total if engine_total else None)
-        )
+        else (engine_completed / engine_total if engine_total else None)
     )
 
     topn_rows = [
-        f"| Top-{n} RMSD ≤ 2 Å | {_pct(summary.topn_rmsd_le_2a_rates.get(str(n)) if summary.topn_evaluable_cases.get(str(n), 0) else None)} |"
+        f"| Top-{n} RMSD ≤ 2 Å | {_pct(summary.topn_rmsd_le_2a_rates.get(str(n)) if rmsd_available else None)} |"
         for n in evaluation.get("top_n_values", [1, 3, 5, 9])
         if n != 1
     ]
@@ -227,7 +219,7 @@ def render_markdown(
             "",
             "- Top-N recovery measures whether any engine-ranked pose within the first N recovers the reference pose.",
             "- Interaction-fingerprint recovery against the crystal pose remains a later benchmark stage.",
-            "- The first complete 308-case run establishes the repository's own regression baseline.",
+            f"- The first complete {dataset.get('paper_case_count', 'manifest-sized')}-case run establishes the repository's own regression baseline.",
             "",
         ]
     )
