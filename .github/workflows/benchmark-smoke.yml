@@ -63,6 +63,7 @@ jobs:
           root = Path(".benchmark-smoke/output")
           summary = json.loads((root / "summary.json").read_text())
           cases = json.loads((root / "evaluated_cases.json").read_text())["cases"]
+          report = (root / "report.md").read_text()
 
           assert summary["total_cases"] == 1
           assert summary["completed_cases"] == 1, cases
@@ -70,6 +71,9 @@ jobs:
           assert len(cases) == 1
           assert cases[0]["rmsd_angstrom"] is not None
           assert isinstance(cases[0]["pb_valid"], bool)
+          assert "## Scientific quality" in report
+          assert "## Engine quality" in report
+          assert "Published Vina Top-1 RMSD" in report
           print(json.dumps(summary, indent=2, sort_keys=True))
           PY
 
