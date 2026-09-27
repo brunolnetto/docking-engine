@@ -63,3 +63,27 @@ scientist-facing artifact:
 The report deliberately keeps the published Vina result as contextual
 reference metadata. It does not compute a regression delta against that value
 unless protocol equivalence has been established.
+
+
+## Astex Diverse fast regression suite
+
+`astex/` defines the 85-complex Astex Diverse suite as the smaller scientific
+regression layer. It uses the same cognate-redocking engine protocol and
+reference-pose evaluation semantics as the primary PoseBusters benchmark, so
+failures can be reproduced through the shared `benchmarks/redocking.py`
+harness rather than a separate implementation.
+
+The initial Astex protocol is intentionally an engine regression protocol, not
+a reproduction of the original GOLD study. Published Astex success percentages
+must therefore not be used as repository regression gates.
+
+Run a prepared Astex dataset with:
+
+```bash
+python benchmarks/astex/run_benchmark.py \
+  --dataset-root <astex_diverse_set> \
+  --output-root <output>
+```
+
+For local harness checks, `--limit N` permits a partial run. An authoritative
+regression baseline requires the complete 85-case suite.
