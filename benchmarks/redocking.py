@@ -48,6 +48,7 @@ class RedockingHarnessConfig:
     exhaustiveness: int = 8
     num_modes: int = 9
     energy_range: float = 3.0
+    allowed_case_ids: frozenset[str] | None = None
 
 
 class BenchmarkStageError(RuntimeError):
@@ -68,12 +69,18 @@ class BenchmarkCase:
     ligand: Path
 
 
-def discover_cases(dataset_root: Path) -> tuple[BenchmarkCase, ...]:
+def discover_cases(
+    dataset_root: Path,
+    *,
+    allowed_case_ids: frozenset[str] | None = None,
+) -> tuple[BenchmarkCase, ...]:
     cases = []
     for directory in sorted(
         path for path in dataset_root.iterdir() if path.is_dir()
     ):
         case_id = directory.name
+        if allowed_case_ids is not None and case_id not in allowed_case_ids:
+            continue
         receptor = directory / f"{case_id}_protein.pdb"
         ligand = directory / f"{case_id}_ligand.sdf"
         if receptor.is_file() and ligand.is_file():
@@ -277,7 +284,10 @@ def run_dataset(
     config: RedockingHarnessConfig,
     limit: int | None = None,
 ) -> Path:
-    cases = discover_cases(dataset_root)
+    cases = discover_cases(
+        dataset_root,
+        allowed_case_ids=config.allowed_case_ids,
+    )
     if not cases:
         raise RuntimeError(f"no {config.benchmark} benchmark cases discovered")
     if limit is None and len(cases) != config.expected_case_count:
