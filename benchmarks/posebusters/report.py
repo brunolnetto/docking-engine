@@ -66,7 +66,11 @@ def render_markdown(
     engine_completed = (
         engine_completed_cases
         if engine_completed_cases is not None
-        else summary.completed_cases
+        else (
+            summary.engine_completed_cases
+            if summary.engine_completed_cases is not None
+            else summary.completed_cases
+        )
     )
     engine_total = (
         engine_total_cases
@@ -76,7 +80,11 @@ def render_markdown(
     effective_engine_rate = (
         engine_success_rate
         if engine_success_rate is not None
-        else (engine_completed / engine_total if engine_total else None)
+        else (
+            summary.engine_execution_success_rate
+            if summary.engine_execution_success_rate is not None
+            else (engine_completed / engine_total if engine_total else None)
+        )
     )
 
     lines = [
