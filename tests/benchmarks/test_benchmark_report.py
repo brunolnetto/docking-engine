@@ -16,6 +16,9 @@ def _summary(*, completed_cases: int = 3) -> BenchmarkSummary:
         median_rmsd_angstrom=1.5 if completed_cases else None,
         median_runtime_seconds=20.0 if completed_cases else None,
         failures_by_stage={} if completed_cases == 4 else {"evaluation": 4 - completed_cases},
+        rmsd_evaluable_cases=completed_cases,
+        pb_evaluable_cases=completed_cases,
+        combined_evaluable_cases=completed_cases,
     )
 
 
@@ -106,3 +109,33 @@ def test_report_keeps_published_reference_contextual():
     assert "> Only compare equivalent protocols." in rendered
     assert "automatic regression gate" in rendered
     assert "Delta" not in rendered
+
+
+def test_report_uses_metric_specific_availability():
+    summary = BenchmarkSummary(
+        benchmark="posebusters_benchmark_v1",
+        total_cases=1,
+        completed_cases=1,
+        execution_success_rate=1.0,
+        top1_rmsd_le_2a_rate=1.0,
+        pb_valid_rate=0.0,
+        combined_success_rate=0.0,
+        median_rmsd_angstrom=1.0,
+        median_runtime_seconds=1.0,
+        failures_by_stage={},
+        rmsd_evaluable_cases=1,
+        pb_evaluable_cases=0,
+        combined_evaluable_cases=0,
+    )
+    rendered = render_markdown(summary=summary, manifest=_manifest())
+
+    assert "| Top-1 RMSD ≤ 2 Å | 100.0% |" in rendered
+    assert "| PB-valid | n/a |" in rendered
+    assert "| RMSD ≤ 2 Å and PB-valid | n/a |" in rendered
+
+
+def test_report_fallback_engine_rate_matches_fallback_counts():
+    rendered = render_markdown(summary=_summary(), manifest=_manifest())
+
+    assert "| Engine-completed cases | 3/4 |" in rendered
+    assert "| Engine execution success | 75.0% |" in rendered
