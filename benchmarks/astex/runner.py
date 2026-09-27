@@ -12,10 +12,10 @@ from benchmarks.redocking import RedockingHarnessConfig, run_dataset  # noqa: E4
 
 
 CONFIG = RedockingHarnessConfig(
-    benchmark="PoseBusters",
-    expected_case_count=308,
-    run_prefix="posebusters",
-    worker_id="posebusters-benchmark",
+    benchmark="Astex Diverse",
+    expected_case_count=85,
+    run_prefix="astex",
+    worker_id="astex-benchmark",
 )
 
 

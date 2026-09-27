@@ -128,6 +128,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--top-n", type=int, default=9)
+    parser.add_argument("--benchmark", default="posebusters_benchmark_v1")
     args = parser.parse_args()
     if args.top_n < 1:
         parser.error("--top-n must be >= 1")
@@ -182,7 +183,7 @@ def main() -> int:
         encoding="utf-8",
     )
     summary = replace(
-        summarize("posebusters_benchmark_v1", results),
+        summarize(args.benchmark, results),
         engine_completed_cases=engine_completed,
         engine_execution_success_rate=engine_rate,
     )
