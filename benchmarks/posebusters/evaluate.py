@@ -7,10 +7,14 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-BENCHMARKS = HERE.parent
-sys.path.insert(0, str(BENCHMARKS))
+REPOSITORY_ROOT = HERE.parent.parent
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from common import CaseResult, summarize, write_summary  # noqa: E402
+from benchmarks.common import (  # noqa: E402
+    CaseResult,
+    summarize,
+    write_summary,
+)
 
 
 def _pick(column_names: list[str], *needles: str) -> str | None:
