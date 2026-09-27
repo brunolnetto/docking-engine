@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+HERE = Path(__file__).resolve().parent
+REPOSITORY_ROOT = HERE.parent.parent
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.common import BenchmarkSummary, load_case_results, summarize
 
