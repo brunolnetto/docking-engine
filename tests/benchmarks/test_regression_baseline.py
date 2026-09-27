@@ -16,9 +16,17 @@ def _summary(
     *,
     top1: float = 0.60,
     combined: float = 0.55,
+    completed: int = 4,
+    rmsd_evaluable: int = 4,
+    pb_evaluable: int = 4,
+    combined_evaluable: int = 4,
 ) -> dict[str, object]:
     return {
         "total_cases": 4,
+        "completed_cases": completed,
+        "rmsd_evaluable_cases": rmsd_evaluable,
+        "pb_evaluable_cases": pb_evaluable,
+        "combined_evaluable_cases": combined_evaluable,
         "top1_rmsd_le_2a_rate": top1,
         "pb_valid_rate": 0.70,
         "combined_success_rate": combined,
@@ -118,3 +126,35 @@ def test_compare_rejects_protocol_drift():
             engine_cases=_engine(),
             manifest_digest="different",
         )
+
+
+def test_compare_fails_when_evaluator_completeness_regresses():
+    baseline = build_baseline(
+        summary=_summary(),
+        engine_cases=_engine(),
+        manifest=_manifest(),
+        manifest_digest="abc",
+        source_commit="deadbeef",
+    )
+    result = compare(
+        baseline=baseline,
+        summary=_summary(
+            completed=3,
+            rmsd_evaluable=3,
+            pb_evaluable=3,
+            combined_evaluable=3,
+        ),
+        engine_cases=_engine(),
+        manifest_digest="abc",
+    )
+
+    assert result["passed"] is False
+    failed = {
+        check["metric"]
+        for check in result["checks"]
+        if not check["passed"]
+    }
+    assert "end_to_end_evaluability_rate" in failed
+    assert "rmsd_evaluable_rate" in failed
+    assert "pb_evaluable_rate" in failed
+    assert "combined_evaluable_rate" in failed
