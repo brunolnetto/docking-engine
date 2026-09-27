@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -210,3 +213,17 @@ def test_aggregate_interactions_requires_identical_case_set(tmp_path):
             interaction_paths=(interactions,),
             expected_case_ids={"a", "b"},
         )
+
+
+def test_aggregate_shards_script_entrypoint_resolves_repository_package():
+    repository_root = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [sys.executable, "benchmarks/aggregate_shards.py", "--help"],
+        cwd=repository_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "--input-root" in completed.stdout
