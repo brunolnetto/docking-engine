@@ -41,6 +41,8 @@ python benchmarks/regression.py compare \
 Current default regression tolerances are:
 
 - engine execution success: at most 1 percentage point drop
+- end-to-end evaluability: at most 1 percentage point drop
+- RMSD/PB/combined evidence availability: at most 1 percentage point drop each
 - Top-1 RMSD <= 2 Å: at most 2 percentage points drop
 - combined Top-1 RMSD <= 2 Å and PB-valid: at most 2 percentage points drop
 
