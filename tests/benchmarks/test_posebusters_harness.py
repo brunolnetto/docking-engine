@@ -6,6 +6,7 @@ import pytest
 
 from benchmarks.common import CaseResult, summarize
 from benchmarks.posebusters.evaluate_engine import (
+    _boolean_value,
     _find_rmsd_numeric,
     _physical_validity,
 )
@@ -97,3 +98,14 @@ def test_physical_validity_excludes_rmsd_boolean():
 def test_physical_validity_requires_checks():
     with pytest.raises(RuntimeError, match="no physical-validity"):
         _physical_validity({"rmsd_<=_2A": True})
+
+
+
+def test_boolean_value_accepts_numpy_style_bool():
+    BoolLike = type(
+        "bool_",
+        (),
+        {"__bool__": lambda self: True},
+    )
+
+    assert _boolean_value(BoolLike()) is True
