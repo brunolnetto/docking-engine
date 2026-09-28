@@ -46,6 +46,9 @@ def _ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
 
 def _prepare_reference(
     row: dict[str, object],
+    *,
+    receptor_parameters: dict[str, object] | None = None,
+    add_ligand_hydrogens: bool = False,
 ) -> tuple[bytes, bytes]:
     receptor_protocol = ReceptorPreparationProtocol(
         method="meeko",
@@ -91,8 +94,17 @@ def _prepare_reference(
     return receptor.pdbqt, ligands[0].pdbqt
 
 
-def evaluate_case(row: dict[str, object]) -> dict[str, object]:
-    receptor_pdbqt, crystal_ligand_pdbqt = _prepare_reference(row)
+def evaluate_case(
+    row: dict[str, object],
+    *,
+    receptor_parameters: dict[str, object] | None = None,
+    add_ligand_hydrogens: bool = False,
+) -> dict[str, object]:
+    receptor_pdbqt, crystal_ligand_pdbqt = _prepare_reference(
+        row,
+        receptor_parameters=receptor_parameters,
+        add_ligand_hydrogens=add_ligand_hydrogens,
+    )
     predicted_pdbqt = Path(str(row["predicted_pdbqt"])).read_bytes()
 
     reference = extract_pdbqt_fingerprint(
