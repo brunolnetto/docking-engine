@@ -90,13 +90,27 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
         receptor,
         full_report=True,
     )
-    if full.empty:
+    binary = buster.bust(
+        predicted,
+        crystal,
+        receptor,
+        full_report=False,
+    )
+    if full.empty or binary.empty:
         raise RuntimeError("PoseBusters returned an empty report")
+    if len(full) != len(binary):
+        raise RuntimeError(
+            "PoseBusters full and binary reports disagree on pose count: "
+            f"{len(full)} != {len(binary)}"
+        )
 
     pose_rmsds: list[float | None] = []
     pose_validity: list[bool | None] = []
     top1_checks: dict[str, bool] = {}
-    for position, (_, full_row) in enumerate(full.iterrows(), start=1):
+    for position, ((_, full_row), (_, binary_row)) in enumerate(
+        zip(full.iterrows(), binary.iterrows(), strict=True),
+        start=1,
+    ):
         rmsd = _find_rmsd_numeric(full_row)
         if position == 1 and rmsd is None:
             raise RuntimeError(
@@ -105,7 +119,7 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
             )
         pose_rmsds.append(rmsd)
         try:
-            checks = _physical_checks(full_row)
+            checks = _physical_checks(binary_row)
             pose_validity.append(all(checks.values()))
             if position == 1:
                 top1_checks = checks
