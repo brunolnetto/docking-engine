@@ -50,11 +50,7 @@ def _prepare_reference(
     receptor_protocol = ReceptorPreparationProtocol(
         method="meeko",
         method_version=MEEKO_VERSION,
-        parameters={
-            "delete_bad_res": True,
-            "default_altloc": "A",
-            "forgive_extra_bonds": True,
-        },
+        parameters=receptor_parameters or {},
     )
     ligand_protocol = LigandPreparationProtocol(
         method="meeko",
@@ -80,7 +76,11 @@ def _prepare_reference(
         LigandPreparationRequest(
             ligand_id=str(row["case_id"]),
             source_format="sdf",
-            content=_ligand_content_with_explicit_hydrogens(ligand_path),
+            content=(
+                _ligand_content_with_explicit_hydrogens(ligand_path)
+                if add_ligand_hydrogens
+                else ligand_path.read_bytes()
+            ),
             protocol=ligand_protocol,
         )
     )
