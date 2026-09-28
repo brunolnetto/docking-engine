@@ -9,6 +9,7 @@ from benchmarks.posebusters.cases import load_case_ids
 from benchmarks.posebusters.evaluate_engine import (
     _boolean_value,
     _find_rmsd_numeric,
+    _physical_checks,
     _physical_validity,
 )
 
@@ -234,3 +235,43 @@ def test_load_case_ids_rejects_wrong_journal_subset_size(tmp_path):
 
     with pytest.raises(RuntimeError, match="exactly 308 unique"):
         load_case_ids(path)
+
+
+def test_physical_checks_preserve_named_failure_evidence():
+    row = {
+        ("mol_pred_loaded", "mol_pred_loaded"): True,
+        ("volume_overlap", "volume_overlap_with_protein"): False,
+        ("rmsd", "rmsd_<=_2A"): True,
+    }
+
+    assert _physical_checks(row) == {
+        "mol_pred_loaded mol_pred_loaded": True,
+        "volume_overlap volume_overlap_with_protein": False,
+    }
+
+
+def test_summary_counts_posebusters_failures_by_check():
+    summary = summarize(
+        "pb",
+        (
+            CaseResult(
+                case_id="a",
+                completed=True,
+                rmsd_angstrom=1.0,
+                pb_valid=False,
+                pb_checks={"sanitization": True, "bond_lengths": False},
+            ),
+            CaseResult(
+                case_id="b",
+                completed=True,
+                rmsd_angstrom=1.1,
+                pb_valid=False,
+                pb_checks={"sanitization": False, "bond_lengths": False},
+            ),
+        ),
+    )
+
+    assert summary.pb_failures_by_check == {
+        "bond_lengths": 2,
+        "sanitization": 1,
+    }
