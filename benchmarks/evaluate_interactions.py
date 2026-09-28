@@ -157,7 +157,11 @@ def main() -> int:
             )
             continue
         try:
-            result = evaluate_case(row)
+            result = evaluate_case(
+                row,
+                receptor_parameters=receptor_parameters,
+                add_ligand_hydrogens=args.add_ligand_hydrogens,
+            )
         except Exception as exc:
             evaluated.append(
                 {
