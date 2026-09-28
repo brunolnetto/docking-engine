@@ -77,6 +77,6 @@ def reliability_cohorts(
     counts = {name: len(case_ids) for name, case_ids in cohorts.items()}
     return {
         "counts": counts,
-        "preparation_failure_reasons": dict(sorted(preparation_reasons.items())),
+        "preparation_failure_reasons": dict(sorted(preparation_reasons.items())),\n        "ranking_diagnostics": sorted(ranking_cases, key=lambda row: str(row["case_id"])),
         "cohorts": {name: sorted(case_ids) for name, case_ids in cohorts.items()},
     }
