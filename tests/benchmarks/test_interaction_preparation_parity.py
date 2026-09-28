@@ -33,7 +33,7 @@ def test_interaction_reference_uses_posebusters_receptor_policy(monkeypatch, tmp
     monkeypatch.setattr(evaluate_interactions, "MeekoLigandPreparer", LigandPreparer)
     monkeypatch.setattr(
         evaluate_interactions,
-        "ligand_content_with_explicit_hydrogens",
+        "_ligand_content_with_explicit_hydrogens",
         lambda path: b"hydrogenated-sdf",
     )
 
