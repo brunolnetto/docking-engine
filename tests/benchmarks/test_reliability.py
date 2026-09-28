@@ -15,9 +15,9 @@ def test_reliability_cohorts_separate_ranking_from_sampling_and_preparation():
         {"case_id": "d", "completed": False, "failure_stage": "preparation", "error": "Failed building template from CCD for resname='HEM'"},
     ]
     evaluated = [
-        {"case_id": "a", "completed": True, "pose_rmsd_angstroms": [1.0, 4.0, 5.0]},
-        {"case_id": "b", "completed": True, "pose_rmsd_angstroms": [4.0, 1.0, 5.0]},
-        {"case_id": "c", "completed": True, "pose_rmsd_angstroms": [4.0, 5.0, 6.0]},
+        {"case_id": "a", "completed": True, "pose_rmsd_angstroms": [1.0, 4.0, 5.0], "pose_evaluation_limit": 3},
+        {"case_id": "b", "completed": True, "pose_rmsd_angstroms": [4.0, 1.0, 5.0], "pose_evaluation_limit": 3},
+        {"case_id": "c", "completed": True, "pose_rmsd_angstroms": [4.0, 5.0, 6.0], "pose_evaluation_limit": 3},
         {"case_id": "d", "completed": False},
     ]
 
@@ -25,6 +25,6 @@ def test_reliability_cohorts_separate_ranking_from_sampling_and_preparation():
 
     assert result["counts"]["top1_hit"] == 1
     assert result["counts"]["ranking_recoverable_top3"] == 1
-    assert result["counts"]["sampling_failure_top9"] == 1
+    assert result["counts"]["sampling_failure_top9"] == 0\n    assert result["counts"]["incomplete_top9_evidence"] == 1
     assert result["counts"]["preparation_failure"] == 1
     assert result["preparation_failure_reasons"] == {"ccd_template:HEM": 1}
