@@ -10,6 +10,7 @@ REPOSITORY_ROOT = HERE.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.interaction_summary import render_interaction_report  # noqa: E402
+from benchmarks.redocking import ligand_content_with_explicit_hydrogens  # noqa: E402
 from benchmarks.interactions import (  # noqa: E402
     InteractionRecoveryMetrics,
     aggregate_metrics,
@@ -35,7 +36,11 @@ def _prepare_reference(
     receptor_protocol = ReceptorPreparationProtocol(
         method="meeko",
         method_version=MEEKO_VERSION,
-        parameters={},
+        parameters={
+            "delete_bad_res": True,
+            "default_altloc": "A",
+            "forgive_extra_bonds": True,
+        },
     )
     ligand_protocol = LigandPreparationProtocol(
         method="meeko",
@@ -61,7 +66,7 @@ def _prepare_reference(
         LigandPreparationRequest(
             ligand_id=str(row["case_id"]),
             source_format="sdf",
-            content=ligand_path.read_bytes(),
+            content=ligand_content_with_explicit_hydrogens(ligand_path),
             protocol=ligand_protocol,
         )
     )
