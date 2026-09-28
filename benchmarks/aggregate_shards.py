@@ -12,7 +12,7 @@ REPOSITORY_ROOT = HERE.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.common import CaseResult, summarize, write_summary
-from benchmarks.interaction_summary import aggregate_family_rows, render_interaction_report
+from benchmarks.interaction_summary import aggregate_family_rows, render_interaction_report\nfrom benchmarks.reliability import reliability_cohorts
 
 
 def _load_cases(path: Path) -> list[dict[str, Any]]:
@@ -177,7 +177,7 @@ def main() -> int:
     _write_cases(args.output_root / "engine_cases.json", engine_rows)
     _write_cases(args.output_root / "evaluated_cases.json", evaluated_rows)
     _write_cases(args.output_root / "interaction_cases.json", interaction_rows)
-    write_summary(args.output_root / "summary.json", summary)
+    write_summary(args.output_root / "summary.json", summary)\n    (args.output_root / "reliability.json").write_text(\n        json.dumps(reliability_cohorts(engine_rows, evaluated_rows), indent=2, sort_keys=True) + "\\n",\n        encoding="utf-8",\n    )
     (args.output_root / "interaction_summary.json").write_text(
         json.dumps(interaction_summary, indent=2, sort_keys=True) + "\\n",
         encoding="utf-8",
