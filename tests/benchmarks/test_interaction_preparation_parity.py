@@ -42,7 +42,13 @@ def test_interaction_reference_uses_posebusters_receptor_policy(monkeypatch, tmp
             "case_id": "case",
             "receptor_pdb": str(receptor),
             "crystal_ligand_sdf": str(ligand),
-        }
+        },
+        receptor_parameters={
+            "delete_bad_res": True,
+            "default_altloc": "A",
+            "forgive_extra_bonds": True,
+        },
+        add_ligand_hydrogens=True,
     )
 
     assert seen["receptor_parameters"] == {
