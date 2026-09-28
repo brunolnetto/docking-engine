@@ -72,7 +72,19 @@ def reliability_cohorts(
         elif any(value is not None and float(value) <= 2.0 for value in rmsds[3:9]):
             cohorts["ranking_recoverable_top9"].append(case_id)
         else:
-            cohorts["sampling_failure_top9"].append(case_id)
+            limit = row.get("pose_evaluation_limit")
+            conclusive = (
+                isinstance(limit, int)
+                and not isinstance(limit, bool)
+                and limit >= 9
+                and len(rmsds) >= 9
+                and all(value is not None for value in rmsds[:9])
+            )
+            cohorts[
+                "sampling_failure_top9"
+                if conclusive
+                else "incomplete_top9_evidence"
+            ].append(case_id)
 
     counts = {name: len(case_ids) for name, case_ids in cohorts.items()}
     return {
