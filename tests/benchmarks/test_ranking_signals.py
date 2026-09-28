@@ -24,3 +24,27 @@ def test_reference_labels_are_attached_only_after_signal_extraction():
 
     assert labeled[0]["reference_rmsd_angstrom"] == 1.5
     assert labeled[0]["reference_success_le_2a"] is True
+
+
+def test_vina_pose_scores_rejects_result_outside_model():
+    content = b"""MODEL 1
+REMARK VINA RESULT: -8.2 0.000 0.000
+ENDMDL
+REMARK VINA RESULT: -7.9 1.100 2.200
+"""
+    import pytest
+
+    with pytest.raises(ValueError, match="outside MODEL"):
+        vina_pose_scores(content)
+
+
+def test_vina_pose_scores_rejects_duplicate_result_in_model():
+    content = b"""MODEL 1
+REMARK VINA RESULT: -8.2 0.000 0.000
+REMARK VINA RESULT: -7.9 1.100 2.200
+ENDMDL
+"""
+    import pytest
+
+    with pytest.raises(ValueError, match="multiple VINA RESULT"):
+        vina_pose_scores(content)
