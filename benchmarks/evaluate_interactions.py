@@ -10,7 +10,6 @@ REPOSITORY_ROOT = HERE.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.interaction_summary import render_interaction_report  # noqa: E402
-from benchmarks.redocking import ligand_content_with_explicit_hydrogens  # noqa: E402
 from benchmarks.interactions import (  # noqa: E402
     InteractionRecoveryMetrics,
     aggregate_metrics,
@@ -28,6 +27,21 @@ from moldock.preparation import (  # noqa: E402
 
 
 MEEKO_VERSION = "0.8.0"
+
+
+def _ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
+    try:
+        from rdkit import Chem
+    except ImportError as exc:
+        raise RuntimeError(
+            "RDKit is required for benchmark ligand hydrogenation"
+        ) from exc
+    supplier = Chem.SDMolSupplier(str(path), removeHs=False)
+    molecule = next((mol for mol in supplier if mol is not None), None)
+    if molecule is None:
+        raise RuntimeError(f"cannot read crystal ligand: {path}")
+    molecule = Chem.AddHs(molecule, addCoords=True)
+    return (Chem.MolToMolBlock(molecule) + "\n$$\n").encode("utf-8")
 
 
 def _prepare_reference(
@@ -66,7 +80,7 @@ def _prepare_reference(
         LigandPreparationRequest(
             ligand_id=str(row["case_id"]),
             source_format="sdf",
-            content=ligand_content_with_explicit_hydrogens(ligand_path),
+            content=_ligand_content_with_explicit_hydrogens(ligand_path),
             protocol=ligand_protocol,
         )
     )
