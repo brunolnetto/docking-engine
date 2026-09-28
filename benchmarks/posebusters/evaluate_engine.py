@@ -49,20 +49,24 @@ def _boolean_value(value: object) -> bool | None:
     return None
 
 
-def _physical_validity(binary_row) -> bool:
-    checks = []
+def _physical_checks(binary_row) -> dict[str, bool]:
+    checks: dict[str, bool] = {}
     for key, value in binary_row.items():
-        name = _column_name(key).lower().replace("å", "a")
-        if "rmsd" in name:
+        name = _column_name(key)
+        if "rmsd" in name.lower().replace("å", "a"):
             continue
         normalized = _boolean_value(value)
         if normalized is not None:
-            checks.append(normalized)
+            checks[name] = normalized
     if not checks:
         raise RuntimeError(
             "PoseBusters returned no physical-validity boolean checks"
         )
-    return all(checks)
+    return checks
+
+
+def _physical_validity(binary_row) -> bool:
+    return all(_physical_checks(binary_row).values())
 
 
 def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseResult:
@@ -91,6 +95,7 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
 
     pose_rmsds: list[float | None] = []
     pose_validity: list[bool | None] = []
+    top1_checks: dict[str, bool] = {}
     for position, (_, full_row) in enumerate(full.iterrows(), start=1):
         rmsd = _find_rmsd_numeric(full_row)
         if position == 1 and rmsd is None:
@@ -100,7 +105,10 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
             )
         pose_rmsds.append(rmsd)
         try:
-            pose_validity.append(_physical_validity(full_row))
+            checks = _physical_checks(full_row)
+            pose_validity.append(all(checks.values()))
+            if position == 1:
+                top1_checks = checks
         except RuntimeError:
             if position == 1:
                 raise
@@ -119,6 +127,7 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
         pose_rmsd_angstroms=tuple(pose_rmsds),
         pose_pb_valid=tuple(pose_validity),
         pose_evaluation_limit=top_n,
+        pb_checks=top1_checks,
     )
 
 
