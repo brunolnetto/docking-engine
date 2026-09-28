@@ -175,6 +175,29 @@ def render_markdown(
     else:
         lines.append("No end-to-end failures were recorded.")
 
+    lines.extend(["", "## PoseBusters diagnostics", ""])
+    if summary.pb_failures_by_check:
+        lines.extend(
+            [
+                "Top-1 physical-validity failures are retained per PoseBusters check; "
+                "one pose can fail multiple checks.",
+                "",
+                "| Failed check | Cases |",
+                "| --- | ---: |",
+                *[
+                    f"| {check} | {count} |"
+                    for check, count in sorted(
+                        summary.pb_failures_by_check.items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                ],
+            ]
+        )
+    elif summary.pb_evaluable_cases:
+        lines.append("No Top-1 PoseBusters physical-validity check failures were recorded.")
+    else:
+        lines.append("PoseBusters physical-validity evidence is unavailable.")
+
     lines.extend(["", "## Published reference context", ""])
 
     if baseline is None:
