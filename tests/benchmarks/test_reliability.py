@@ -25,6 +25,7 @@ def test_reliability_cohorts_separate_ranking_from_sampling_and_preparation():
 
     assert result["counts"]["top1_hit"] == 1
     assert result["counts"]["ranking_recoverable_top3"] == 1
-    assert result["counts"]["sampling_failure_top9"] == 0\n    assert result["counts"]["incomplete_top9_evidence"] == 1
+    assert result["counts"]["sampling_failure_top9"] == 0
+    assert result["counts"]["incomplete_top9_evidence"] == 1
     assert result["counts"]["preparation_failure"] == 1
     assert result["preparation_failure_reasons"] == {"ccd_template:HEM": 1}
