@@ -189,11 +189,11 @@ def main() -> int:
         encoding="utf-8",
     )
     (args.output_root / "interaction_summary.json").write_text(
-        json.dumps(interaction_summary, indent=2, sort_keys=True) + "\\n",
+        json.dumps(interaction_summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (args.output_root / "interaction_report.md").write_text(
-        render_interaction_report(interaction_summary) + "\\n",
+        render_interaction_report(interaction_summary) + "\n",
         encoding="utf-8",
     )
     print(args.output_root / "summary.json")
