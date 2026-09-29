@@ -135,7 +135,19 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--receptor-delete-bad-res", action="store_true")
+    parser.add_argument("--receptor-default-altloc")
+    parser.add_argument("--receptor-forgive-extra-bonds", action="store_true")
+    parser.add_argument("--add-ligand-hydrogens", action="store_true")
     args = parser.parse_args()
+
+    receptor_parameters: dict[str, object] = {}
+    if args.receptor_delete_bad_res:
+        receptor_parameters["delete_bad_res"] = True
+    if args.receptor_default_altloc is not None:
+        receptor_parameters["default_altloc"] = args.receptor_default_altloc
+    if args.receptor_forgive_extra_bonds:
+        receptor_parameters["forgive_extra_bonds"] = True
 
     payload = json.loads(args.engine_cases.read_text(encoding="utf-8"))
     rows = payload.get("cases")
