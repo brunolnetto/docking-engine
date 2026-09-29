@@ -52,28 +52,20 @@ def stage_summary(
         interactions[c].get("completed") is True for c in ids
     )
 
-    def coverage_metric(count: int) -> dict[str, object]:
+    def metric(count: int) -> dict[str, object]:
         return {
             "cases": count,
-            "denominator": total,
             "rate": count / total if total else None,
-        }
-
-    def scientific_metric(count: int, denominator: int) -> dict[str, object]:
-        return {
-            "cases": count,
-            "denominator": denominator,
-            "rate": count / denominator if denominator else None,
         }
 
     return {
         "total_cases": total,
-        "engine_execution": coverage_metric(engine_ok),
-        "rmsd_evaluable": coverage_metric(rmsd_ok),
-        "top1_rmsd_le_2a": scientific_metric(top1_ok, rmsd_ok),
-        "pb_evaluable": coverage_metric(pb_evaluable),
-        "pb_valid": scientific_metric(pb_valid, pb_evaluable),
-        "interaction_evaluable": coverage_metric(interaction_ok),
+        "engine_execution": metric(engine_ok),
+        "rmsd_evaluable": metric(rmsd_ok),
+        "top1_rmsd_le_2a": metric(top1_ok),
+        "pb_evaluable": metric(pb_evaluable),
+        "pb_valid": metric(pb_valid),
+        "interaction_evaluable": metric(interaction_ok),
     }
 
 
@@ -98,12 +90,9 @@ def render_markdown(summary: dict[str, object]) -> str:
     for key, label in labels:
         value = summary[key]
         count = int(value["cases"])
-        denominator = int(value["denominator"])
         rate = value["rate"]
         rendered_rate = "n/a" if rate is None else f"{float(rate) * 100:.1f}%"
-        lines.append(
-            f"| {label} | {count}/{denominator} | {rendered_rate} |"
-        )
+        lines.append(f"| {label} | {count}/{total} | {rendered_rate} |")
     lines.extend(
         [
             "",

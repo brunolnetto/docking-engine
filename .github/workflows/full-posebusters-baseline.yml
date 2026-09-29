@@ -207,6 +207,13 @@ jobs:
             --baseline benchmarks/posebusters/baselines/vina-paper.json \
             --output .full-benchmark/aggregate/report.md
 
+          python benchmarks/posebusters/diagnostic_report.py \
+            --engine-cases .full-benchmark/aggregate/engine_cases.json \
+            --evaluated-cases .full-benchmark/aggregate/evaluated_cases.json \
+            --interaction-cases .full-benchmark/aggregate/interaction_cases.json \
+            --output-json .full-benchmark/aggregate/diagnostic_summary.json \
+            --output-report .full-benchmark/aggregate/diagnostic_report.md
+
       - name: Record repository-measured baseline
         run: |
           python benchmarks/regression.py record \
