@@ -29,13 +29,31 @@ from moldock.preparation import (  # noqa: E402
 MEEKO_VERSION = "0.8.0"
 
 
+def _ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
+    try:
+        from rdkit import Chem
+    except ImportError as exc:
+        raise RuntimeError(
+            "RDKit is required for benchmark ligand hydrogenation"
+        ) from exc
+    supplier = Chem.SDMolSupplier(str(path), removeHs=False)
+    molecule = next((mol for mol in supplier if mol is not None), None)
+    if molecule is None:
+        raise RuntimeError(f"cannot read crystal ligand: {path}")
+    molecule = Chem.AddHs(molecule, addCoords=True)
+    return (Chem.MolToMolBlock(molecule) + "\n$$\n").encode("utf-8")
+
+
 def _prepare_reference(
     row: dict[str, object],
+    *,
+    receptor_parameters: dict[str, object] | None = None,
+    add_ligand_hydrogens: bool = False,
 ) -> tuple[bytes, bytes]:
     receptor_protocol = ReceptorPreparationProtocol(
         method="meeko",
         method_version=MEEKO_VERSION,
-        parameters={},
+        parameters=receptor_parameters or {},
     )
     ligand_protocol = LigandPreparationProtocol(
         method="meeko",
@@ -61,7 +79,11 @@ def _prepare_reference(
         LigandPreparationRequest(
             ligand_id=str(row["case_id"]),
             source_format="sdf",
-            content=ligand_path.read_bytes(),
+            content=(
+                _ligand_content_with_explicit_hydrogens(ligand_path)
+                if add_ligand_hydrogens
+                else ligand_path.read_bytes()
+            ),
             protocol=ligand_protocol,
         )
     )
@@ -72,8 +94,17 @@ def _prepare_reference(
     return receptor.pdbqt, ligands[0].pdbqt
 
 
-def evaluate_case(row: dict[str, object]) -> dict[str, object]:
-    receptor_pdbqt, crystal_ligand_pdbqt = _prepare_reference(row)
+def evaluate_case(
+    row: dict[str, object],
+    *,
+    receptor_parameters: dict[str, object] | None = None,
+    add_ligand_hydrogens: bool = False,
+) -> dict[str, object]:
+    receptor_pdbqt, crystal_ligand_pdbqt = _prepare_reference(
+        row,
+        receptor_parameters=receptor_parameters,
+        add_ligand_hydrogens=add_ligand_hydrogens,
+    )
     predicted_pdbqt = Path(str(row["predicted_pdbqt"])).read_bytes()
 
     reference = extract_pdbqt_fingerprint(
@@ -104,7 +135,19 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--receptor-delete-bad-res", action="store_true")
+    parser.add_argument("--receptor-default-altloc")
+    parser.add_argument("--receptor-forgive-extra-bonds", action="store_true")
+    parser.add_argument("--add-ligand-hydrogens", action="store_true")
     args = parser.parse_args()
+
+    receptor_parameters: dict[str, object] = {}
+    if args.receptor_delete_bad_res:
+        receptor_parameters["delete_bad_res"] = True
+    if args.receptor_default_altloc is not None:
+        receptor_parameters["default_altloc"] = args.receptor_default_altloc
+    if args.receptor_forgive_extra_bonds:
+        receptor_parameters["forgive_extra_bonds"] = True
 
     payload = json.loads(args.engine_cases.read_text(encoding="utf-8"))
     rows = payload.get("cases")
@@ -126,7 +169,11 @@ def main() -> int:
             )
             continue
         try:
-            result = evaluate_case(row)
+            result = evaluate_case(
+                row,
+                receptor_parameters=receptor_parameters,
+                add_ligand_hydrogens=args.add_ligand_hydrogens,
+            )
         except Exception as exc:
             evaluated.append(
                 {
