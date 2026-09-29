@@ -84,6 +84,11 @@ def main() -> int:
             str(interaction_summary),
             "--report",
             str(interaction_report),
+            "--receptor-delete-bad-res",
+            "--receptor-default-altloc",
+            "A",
+            "--receptor-forgive-extra-bonds",
+            "--add-ligand-hydrogens",
         ]
     )
     print(summary)
