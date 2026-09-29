@@ -19,6 +19,7 @@ class CaseResult:
     pose_rmsd_angstroms: tuple[float | None, ...] = ()
     pose_pb_valid: tuple[bool | None, ...] = ()
     pose_evaluation_limit: int = 1
+    pb_checks: dict[str, bool] = field(default_factory=dict)
 
     @property
     def ranked_rmsds(self) -> tuple[float | None, ...]:
@@ -68,6 +69,7 @@ class BenchmarkSummary:
     engine_execution_success_rate: float | None = None
     topn_rmsd_le_2a_rates: dict[str, float] = field(default_factory=dict)
     topn_evaluable_cases: dict[str, int] = field(default_factory=dict)
+    pb_failures_by_check: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -131,6 +133,11 @@ def summarize(
         str(n): len(results)
         for n, results in topn_evidence.items()
     }
+    pb_failures: dict[str, int] = {}
+    for row in pb_rows:
+        for check, passed in row.pb_checks.items():
+            if passed is False:
+                pb_failures[check] = pb_failures.get(check, 0) + 1
 
     return BenchmarkSummary(
         benchmark=benchmark,
@@ -156,6 +163,7 @@ def summarize(
         combined_evaluable_cases=len(combined_rows),
         topn_rmsd_le_2a_rates=topn_rates,
         topn_evaluable_cases=topn_counts,
+        pb_failures_by_check=dict(sorted(pb_failures.items())),
     )
 
 
