@@ -11,6 +11,7 @@ REPOSITORY_ROOT = HERE.parent.parent
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from benchmarks.common import BenchmarkSummary, load_case_results, summarize
+from benchmarks.failure_taxonomy import preparation_failure_taxonomy
 
 
 def _pct(value: float | None) -> str:
@@ -50,6 +51,7 @@ def render_markdown(
     engine_completed_cases: int | None = None,
     engine_total_cases: int | None = None,
     engine_success_rate: float | None = None,
+    preparation_failures: dict[str, int] | None = None,
 ) -> str:
     dataset = manifest.get("dataset", {})
     protocol = manifest.get("protocol", {})
@@ -175,28 +177,26 @@ def render_markdown(
     else:
         lines.append("No end-to-end failures were recorded.")
 
-    lines.extend(["", "## PoseBusters diagnostics", ""])
-    if summary.pb_failures_by_check:
+    if preparation_failures:
         lines.extend(
             [
-                "Top-1 physical-validity failures are retained per PoseBusters check; "
-                "one pose can fail multiple checks.",
                 "",
-                "| Failed check | Cases |",
+                "### Preparation failure taxonomy",
+                "",
+                "| Failure family | Cases |",
                 "| --- | ---: |",
                 *[
-                    f"| {check} | {count} |"
-                    for check, count in sorted(
-                        summary.pb_failures_by_check.items(),
+                    f"| {family} | {count} |"
+                    for family, count in sorted(
+                        preparation_failures.items(),
                         key=lambda item: (-item[1], item[0]),
                     )
                 ],
+                "",
+                "These categories describe observed preparation failures; they do not "
+                "authorize deleting cofactors or nonstandard residues from receptors.",
             ]
         )
-    elif summary.pb_evaluable_cases:
-        lines.append("No Top-1 PoseBusters physical-validity check failures were recorded.")
-    else:
-        lines.append("PoseBusters physical-validity evidence is unavailable.")
 
     lines.extend(["", "## Published reference context", ""])
 
@@ -271,7 +271,9 @@ def main() -> int:
     benchmark = str(manifest.get("benchmark") or "benchmark")
     summary = summarize(benchmark, results)
     baseline = _load_json(args.baseline) if args.baseline else None
-    completed, total, rate = engine_completion(_load_json(args.engine_cases))
+    engine_payload = _load_json(args.engine_cases)
+    completed, total, rate = engine_completion(engine_payload)
+    preparation_failures = preparation_failure_taxonomy(engine_payload["cases"])
     rendered = render_markdown(
         summary=summary,
         manifest=manifest,
@@ -279,6 +281,7 @@ def main() -> int:
         engine_completed_cases=completed,
         engine_total_cases=total,
         engine_success_rate=rate,
+        preparation_failures=preparation_failures,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(rendered + "\n", encoding="utf-8")
