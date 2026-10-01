@@ -30,3 +30,12 @@ def test_taxonomy_counts_only_preparation_failures():
         "ccd_template_failure": 1,
         "missing_atom_type": 1,
     }
+
+
+def test_classifies_preparation_timeout_subclasses_by_target():
+    assert classify_preparation_error(
+        "MeekoReceptorPreparationTimeoutError: timed out"
+    ) == "other_receptor_preparation"
+    assert classify_preparation_error(
+        "MeekoLigandPreparationTimeoutError: timed out"
+    ) == "other_ligand_preparation"
