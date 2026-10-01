@@ -300,7 +300,7 @@ def test_aggregate_pose_evidence_requires_every_completed_case_per_shard(tmp_pat
     )
 
     with pytest.raises(ValueError, match="pose_evidence/completed case sets differ"):
-        aggregate_pose_evidence(path for path in (path,), expected_case_ids={"a", "b"})
+        aggregate_pose_evidence((path,), expected_case_ids={"a", "b"})
 
 
 def test_aggregate_pose_evidence_rejects_evidence_owned_by_wrong_shard(tmp_path):
