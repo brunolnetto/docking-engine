@@ -7,8 +7,6 @@ from pathlib import Path
 import subprocess
 import time
 
-from rdkit import Chem
-
 from moldock.backends import VinaBackend
 from moldock.domain import DockingBox, DockingProtocol
 from moldock.pipeline import OfflineDockingPipeline, OfflineDockingSpec
@@ -94,7 +92,16 @@ def discover_cases(
     return tuple(cases)
 
 
+def _rdkit_chem():
+    try:
+        from rdkit import Chem
+    except ImportError as exc:
+        raise RuntimeError("RDKit is required for benchmark ligand handling") from exc
+    return Chem
+
+
 def crystal_ligand_center(path: Path) -> tuple[float, float, float]:
+    Chem = _rdkit_chem()
     supplier = Chem.SDMolSupplier(str(path), removeHs=False)
     molecule = next((mol for mol in supplier if mol is not None), None)
     if molecule is None:
@@ -117,6 +124,7 @@ def crystal_ligand_center(path: Path) -> tuple[float, float, float]:
 
 
 def ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
+    Chem = _rdkit_chem()
     supplier = Chem.SDMolSupplier(str(path), removeHs=False)
     molecule = next((mol for mol in supplier if mol is not None), None)
     if molecule is None:
