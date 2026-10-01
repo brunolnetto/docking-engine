@@ -33,6 +33,7 @@ from moldock.storage import FilesystemArtifactStore
 from moldock.toolchain import VinaMeekoToolchainPreflight
 
 from benchmarks.posebusters.preparation_policy import preparation_decisions
+from benchmarks.ranking_signals import vina_pose_scores
 
 
 @dataclass(frozen=True)
@@ -224,6 +225,33 @@ def case_preparation_evidence(case: BenchmarkCase) -> dict[str, object]:
     }
 
 
+def sdf_record_count(content: bytes) -> int:
+    return sum(1 for line in content.splitlines() if line.strip() == b"$$")
+
+
+def export_pdbqt_to_sdf(
+    pdbqt_path: Path,
+    sdf_path: Path,
+    *,
+    runner=subprocess.run,
+) -> None:
+    expected_poses = len(vina_pose_scores(pdbqt_path.read_bytes()))
+    if expected_poses < 1:
+        raise ValueError("Vina PDBQT contains no complete pose models")
+    runner(
+        ["mk_export.py", str(pdbqt_path), "-s", str(sdf_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    observed_poses = sdf_record_count(sdf_path.read_bytes())
+    if observed_poses != expected_poses:
+        raise ValueError(
+            "PDBQT/SDF pose cardinality mismatch: "
+            f"expected {expected_poses}, observed {observed_poses}"
+        )
+
+
 def run_case(
     case: BenchmarkCase,
     output_root: Path,
@@ -305,17 +333,7 @@ def run_case(
             predicted_pdbqt = workspace / "predicted.pdbqt"
             predicted_sdf = workspace / "predicted.sdf"
             predicted_pdbqt.write_bytes(pdbqt)
-            subprocess.run(
-                [
-                    "mk_export.py",
-                    str(predicted_pdbqt),
-                    "-s",
-                    str(predicted_sdf),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            export_pdbqt_to_sdf(predicted_pdbqt, predicted_sdf)
         except Exception as exc:
             raise BenchmarkStageError("export", exc) from exc
 
