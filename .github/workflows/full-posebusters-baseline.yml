@@ -248,7 +248,7 @@ jobs:
                   root / "interaction_cases.json",
                   root / "summary.json",
                   root / "diagnostic_summary.json",
-                  root / "reliability_cohorts.json",
+                  root / "reliability.json",
               ],
           )
           (root / "provenance.json").write_text(
