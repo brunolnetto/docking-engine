@@ -7,8 +7,6 @@ from pathlib import Path
 import subprocess
 import time
 
-from rdkit import Chem
-
 from moldock.backends import VinaBackend
 from moldock.domain import DockingBox, DockingProtocol
 from moldock.pipeline import OfflineDockingPipeline, OfflineDockingSpec
@@ -33,6 +31,8 @@ from moldock.results import (
 )
 from moldock.storage import FilesystemArtifactStore
 from moldock.toolchain import VinaMeekoToolchainPreflight
+
+from benchmarks.posebusters.preparation_policy import preparation_decisions
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,16 @@ def discover_cases(
     return tuple(cases)
 
 
+def _rdkit_chem():
+    try:
+        from rdkit import Chem
+    except ImportError as exc:
+        raise RuntimeError("RDKit is required for benchmark ligand handling") from exc
+    return Chem
+
+
 def crystal_ligand_center(path: Path) -> tuple[float, float, float]:
+    Chem = _rdkit_chem()
     supplier = Chem.SDMolSupplier(str(path), removeHs=False)
     molecule = next((mol for mol in supplier if mol is not None), None)
     if molecule is None:
@@ -115,12 +124,13 @@ def crystal_ligand_center(path: Path) -> tuple[float, float, float]:
 
 
 def ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
+    Chem = _rdkit_chem()
     supplier = Chem.SDMolSupplier(str(path), removeHs=False)
     molecule = next((mol for mol in supplier if mol is not None), None)
     if molecule is None:
         raise RuntimeError(f"cannot read crystal ligand: {path}")
     molecule = Chem.AddHs(molecule, addCoords=True)
-    return (Chem.MolToMolBlock(molecule) + "\n$$\n").encode("utf-8")
+    return (Chem.MolToMolBlock(molecule) + "\n$$$$\n").encode("utf-8")
 
 
 def receptor_preparation_parameters(
@@ -198,6 +208,22 @@ def make_spec(
     )
 
 
+def case_preparation_evidence(case: BenchmarkCase) -> dict[str, object]:
+    try:
+        decisions = preparation_decisions(case.receptor.read_bytes())
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "decisions": [],
+        }
+    return {
+        "available": True,
+        "error": None,
+        "decisions": [decision.as_dict() for decision in decisions],
+    }
+
+
 def run_case(
     case: BenchmarkCase,
     output_root: Path,
@@ -222,6 +248,7 @@ def run_case(
     )
     runs = DuckLakeRunManifestRepository(catalog_path=catalog, data_path=data)
     try:
+        preparation_evidence = case_preparation_evidence(case)
         try:
             spec = make_spec(case, config)
         except Exception as exc:
@@ -300,6 +327,7 @@ def run_case(
             "predicted_sdf": str(predicted_sdf),
             "crystal_ligand_sdf": str(case.ligand),
             "receptor_pdb": str(case.receptor),
+            "preparation_evidence": preparation_evidence,
         }
     finally:
         runs.close()
@@ -346,6 +374,7 @@ def run_dataset(
                     "failure_stage": exc.stage,
                     "error": str(exc),
                     "runtime_seconds": time.monotonic() - case_started,
+                    "preparation_evidence": case_preparation_evidence(case),
                 }
             )
         except Exception as exc:
@@ -356,6 +385,7 @@ def run_dataset(
                     "failure_stage": "engine",
                     "error": f"{type(exc).__name__}: {exc}",
                     "runtime_seconds": time.monotonic() - case_started,
+                    "preparation_evidence": case_preparation_evidence(case),
                 }
             )
 
