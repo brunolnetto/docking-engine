@@ -31,5 +31,5 @@ def test_policy_marks_only_known_solvent_additives_as_removal_candidates():
 
 def test_policy_requires_manual_disposition_for_unknown_hetero_residue():
     [decision] = preparation_decisions(_hetatm("XYZ", "B", 9).encode())
-    assert decision.decision == "manual_template_required"
-    assert "explicit template" in decision.reason
+    assert decision.decision == "manual_disposition_required"
+    assert "case-specific disposition" in decision.reason
