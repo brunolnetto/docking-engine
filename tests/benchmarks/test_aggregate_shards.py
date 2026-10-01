@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from benchmarks.aggregate_shards import aggregate, aggregate_interactions
+from benchmarks.aggregate_shards import (\n    aggregate,\n    aggregate_interactions,\n    aggregate_pose_evidence,\n)
 
 
 def _write(path, rows):
@@ -227,3 +227,58 @@ def test_aggregate_shards_script_entrypoint_resolves_repository_package():
 
     assert completed.returncode == 0, completed.stderr
     assert "--input-root" in completed.stdout
+
+
+def test_aggregate_pose_evidence_preserves_ranked_rows(tmp_path):
+    first = tmp_path / "a" / "evaluated_cases.json"
+    first.parent.mkdir(parents=True, exist_ok=True)
+    first.write_text(
+        json.dumps({
+            "cases": [_evaluated("a")],
+            "pose_evidence": {
+                "a": [
+                    {"rank": 1, "vina_affinity_kcal_mol": -8.1},
+                    {"rank": 2, "vina_affinity_kcal_mol": -7.9},
+                ]
+            },
+        }),
+        encoding="utf-8",
+    )
+    second = tmp_path / "b" / "evaluated_cases.json"
+    second.parent.mkdir(parents=True, exist_ok=True)
+    second.write_text(
+        json.dumps({
+            "cases": [_evaluated("b")],
+            "pose_evidence": {
+                "b": [{"rank": 1, "vina_affinity_kcal_mol": -6.0}]
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    evidence = aggregate_pose_evidence(
+        (first, second),
+        expected_case_ids={"a", "b"},
+    )
+
+    assert list(evidence) == ["a", "b"]
+    assert [pose["rank"] for pose in evidence["a"]] == [1, 2]
+    assert evidence["b"][0]["vina_affinity_kcal_mol"] == -6.0
+
+
+def test_aggregate_pose_evidence_rejects_duplicate_case(tmp_path):
+    paths = []
+    for shard in ("a", "b"):
+        path = tmp_path / shard / "evaluated_cases.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "cases": [_evaluated("same")],
+                "pose_evidence": {"same": [{"rank": 1}]},
+            }),
+            encoding="utf-8",
+        )
+        paths.append(path)
+
+    with pytest.raises(ValueError, match="duplicate pose_evidence case_id"):
+        aggregate_pose_evidence(paths, expected_case_ids={"same"})
