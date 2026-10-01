@@ -19,7 +19,7 @@ def test_cohort_selection_uses_chemistry_evidence_and_failure_class():
         {
             "case_id": "template",
             "completed": False,
-            "preparation_failure_class": "unresolved_nonstandard_residue",
+            "error": "Residue XYZ is not in residue_templates",
             "preparation_evidence": {"decisions": []},
         },
         {"case_id": "ok", "completed": True},
