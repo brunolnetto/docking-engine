@@ -7,7 +7,7 @@ from typing import Literal
 Decision = Literal[
     "preserve",
     "safe_remove_candidate",
-    "manual_template_required",
+    "manual_disposition_required",
 ]
 
 # Conservative benchmark policy. These are not automatic deletions.
@@ -76,8 +76,8 @@ def classify_residue(residue: ResidueEvidence) -> PreparationDecision:
         )
     return PreparationDecision(
         residue,
-        "manual_template_required",
-        "unclassified hetero residue; require an explicit template or case-specific disposition",
+        "manual_disposition_required",
+        "unclassified hetero residue; require an explicit case-specific disposition",
     )
 
 
