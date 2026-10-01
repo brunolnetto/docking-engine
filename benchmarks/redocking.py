@@ -226,7 +226,8 @@ def case_preparation_evidence(case: BenchmarkCase) -> dict[str, object]:
 
 
 def sdf_record_count(content: bytes) -> int:
-    return sum(1 for line in content.splitlines() if line.strip() == b"$$")
+    terminator = b"$" * 4
+    return sum(1 for line in content.splitlines() if line.strip() == terminator)
 
 
 def export_pdbqt_to_sdf(
