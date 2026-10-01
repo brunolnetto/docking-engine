@@ -34,6 +34,8 @@ from moldock.results import (
 from moldock.storage import FilesystemArtifactStore
 from moldock.toolchain import VinaMeekoToolchainPreflight
 
+from benchmarks.posebusters.preparation_policy import preparation_decisions
+
 
 @dataclass(frozen=True)
 class RedockingHarnessConfig:
@@ -221,6 +223,10 @@ def run_case(
         data_path=data,
     )
     runs = DuckLakeRunManifestRepository(catalog_path=catalog, data_path=data)
+    preparation_evidence = [
+        decision.as_dict()
+        for decision in preparation_decisions(case.receptor.read_bytes())
+    ]
     try:
         try:
             spec = make_spec(case, config)
@@ -300,6 +306,7 @@ def run_case(
             "predicted_sdf": str(predicted_sdf),
             "crystal_ligand_sdf": str(case.ligand),
             "receptor_pdb": str(case.receptor),
+            "preparation_evidence": preparation_evidence,
         }
     finally:
         runs.close()
