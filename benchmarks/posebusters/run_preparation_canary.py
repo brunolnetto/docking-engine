@@ -27,6 +27,29 @@ def load_treatment(path: Path) -> dict[str, Any]:
     unknown = set(payload) - ALLOWED_TREATMENT_FIELDS
     if unknown:
         raise ValueError(f"unsupported treatment fields: {sorted(unknown)}")
+    boolean_fields = {
+        "receptor_delete_bad_res",
+        "receptor_forgive_extra_bonds",
+    }
+    string_fields = ALLOWED_TREATMENT_FIELDS - boolean_fields
+    invalid = {
+        key: value
+        for key, value in payload.items()
+        if (
+            key in boolean_fields
+            and not isinstance(value, bool)
+        )
+        or (
+            key in string_fields
+            and value is not None
+            and not isinstance(value, str)
+        )
+    }
+    if invalid:
+        raise ValueError(
+            "treatment field types are invalid: "
+            + ", ".join(f"{key}={value!r}" for key, value in sorted(invalid.items()))
+        )
     return payload
 
 
@@ -70,6 +93,14 @@ def _cases(path: Path) -> list[dict[str, object]]:
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         raise ValueError(f"{path} must contain a cases list")
     return rows
+
+
+def serializable_config(config: RedockingHarnessConfig) -> dict[str, object]:
+    payload = asdict(config)
+    case_ids = payload.get("allowed_case_ids")
+    if isinstance(case_ids, (set, frozenset)):
+        payload["allowed_case_ids"] = sorted(case_ids)
+    return payload
 
 
 def main() -> int:
@@ -121,9 +152,9 @@ def main() -> int:
     payload = {
         "family": args.family,
         "case_ids": sorted(case_ids),
-        "baseline_config": asdict(common),
+        "baseline_config": serializable_config(common),
         "treatment": treatment,
-        "treatment_config": asdict(treated),
+        "treatment_config": serializable_config(treated),
         "outcomes": [asdict(row) for row in outcomes],
         "summary": summary,
         "scientific_evaluation_required": True,
