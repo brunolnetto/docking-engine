@@ -120,7 +120,7 @@ def ligand_content_with_explicit_hydrogens(path: Path) -> bytes:
     if molecule is None:
         raise RuntimeError(f"cannot read crystal ligand: {path}")
     molecule = Chem.AddHs(molecule, addCoords=True)
-    return (Chem.MolToMolBlock(molecule) + "\n$$\n").encode("utf-8")
+    return (Chem.MolToMolBlock(molecule) + "\n$$$$\n").encode("utf-8")
 
 
 def receptor_preparation_parameters(
