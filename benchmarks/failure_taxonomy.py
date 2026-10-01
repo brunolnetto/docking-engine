@@ -14,9 +14,9 @@ def classify_preparation_error(error: str | None) -> str:
         return "ambiguous_residue_template"
     if "not in residue_templates" in text:
         return "unresolved_nonstandard_residue"
-    if "MeekoReceptorPreparationError" in text:
+    if "MeekoReceptorPreparation" in text:
         return "other_receptor_preparation"
-    if "MeekoLigandPreparationError" in text:
+    if "MeekoLigandPreparation" in text:
         return "other_ligand_preparation"
     return "other_preparation"
 

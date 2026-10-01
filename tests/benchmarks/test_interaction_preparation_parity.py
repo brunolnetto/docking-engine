@@ -57,3 +57,34 @@ def test_interaction_reference_uses_posebusters_receptor_policy(monkeypatch, tmp
         "forgive_extra_bonds": True,
     }
     assert seen["ligand_content"] == b"hydrogenated-sdf"
+
+
+def test_hydrogenated_reference_is_a_complete_sdf_record(monkeypatch, tmp_path):
+    ligand = tmp_path / "case_ligand.sdf"
+    ligand.write_text("dummy", encoding="utf-8")
+
+    class ChemStub:
+        class SDMolSupplier:
+            def __init__(self, *args, **kwargs):
+                self._items = iter([object()])
+            def __iter__(self):
+                return self._items
+
+        @staticmethod
+        def AddHs(molecule, addCoords):
+            assert addCoords is True
+            return molecule
+
+        @staticmethod
+        def MolToMolBlock(molecule):
+            return "molblock"
+
+    import sys
+    import types
+    rdkit = types.ModuleType("rdkit")
+    rdkit.Chem = ChemStub
+    monkeypatch.setitem(sys.modules, "rdkit", rdkit)
+
+    content = evaluate_interactions._ligand_content_with_explicit_hydrogens(ligand)
+
+    assert content.endswith(b"\n$$$$\n")
