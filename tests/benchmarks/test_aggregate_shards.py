@@ -286,3 +286,33 @@ def test_aggregate_pose_evidence_rejects_duplicate_case(tmp_path):
 
     with pytest.raises(ValueError, match="duplicate pose_evidence case_id"):
         aggregate_pose_evidence(paths, expected_case_ids={"same"})
+
+
+def test_aggregate_pose_evidence_requires_every_completed_case_per_shard(tmp_path):
+    path = tmp_path / "a" / "evaluated_cases.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "cases": [_evaluated("a"), _evaluated("b")],
+            "pose_evidence": {"a": [{"rank": 1}]},
+        }),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="pose_evidence/completed case sets differ"):
+        aggregate_pose_evidence(path for path in (path,), expected_case_ids={"a", "b"})
+
+
+def test_aggregate_pose_evidence_rejects_evidence_owned_by_wrong_shard(tmp_path):
+    path = tmp_path / "a" / "evaluated_cases.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "cases": [_evaluated("a")],
+            "pose_evidence": {"b": [{"rank": 1}]},
+        }),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="pose_evidence/completed case sets differ"):
+        aggregate_pose_evidence((path,), expected_case_ids={"a", "b"})
