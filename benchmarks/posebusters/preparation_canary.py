@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from benchmarks.failure_taxonomy import classify_preparation_error
+
 
 @dataclass(frozen=True, slots=True)
 class CanaryOutcome:
@@ -85,7 +87,14 @@ def cohort_case_ids(
             for item in decisions
             if isinstance(item, dict) and isinstance(item.get("residue"), dict)
         }
-        failure_class = str(row.get("preparation_failure_class", ""))
+        explicit_failure_class = row.get("preparation_failure_class")
+        failure_class = (
+            str(explicit_failure_class)
+            if explicit_failure_class
+            else classify_preparation_error(
+                str(row["error"]) if row.get("error") is not None else None
+            )
+        )
         if observed.intersection(residue_names) or failure_class in failure_classes:
             selected.add(str(row["case_id"]))
     return tuple(sorted(selected))
