@@ -1,0 +1,8 @@
+{
+  "family": "GLU_rdkit_failure",
+  "scope": "seed",
+  "case_ids": [
+    "7M31_TDR"
+  ],
+  "rationale": "Known standard GLU RDKit build failure; retained separately because it may indicate a library/tooling gap rather than nonstandard chemistry."
+}
