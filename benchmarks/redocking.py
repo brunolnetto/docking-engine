@@ -53,6 +53,9 @@ class RedockingHarnessConfig:
     receptor_delete_bad_res: bool = False
     receptor_default_altloc: str | None = None
     receptor_forgive_extra_bonds: bool = False
+    receptor_wanted_altloc: str | None = None
+    receptor_set_template: str | None = None
+    receptor_delete_residues: str | None = None
 
 
 class BenchmarkStageError(RuntimeError):
@@ -143,6 +146,12 @@ def receptor_preparation_parameters(
         parameters["default_altloc"] = config.receptor_default_altloc
     if config.receptor_forgive_extra_bonds:
         parameters["forgive_extra_bonds"] = True
+    if config.receptor_wanted_altloc is not None:
+        parameters["wanted_altloc"] = config.receptor_wanted_altloc
+    if config.receptor_set_template is not None:
+        parameters["set_template"] = config.receptor_set_template
+    if config.receptor_delete_residues is not None:
+        parameters["delete_residues"] = config.receptor_delete_residues
     return parameters
 
 
