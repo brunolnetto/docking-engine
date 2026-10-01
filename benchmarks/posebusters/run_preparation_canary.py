@@ -20,6 +20,25 @@ ALLOWED_TREATMENT_FIELDS = frozenset({
 })
 
 
+def load_cohort(path: Path) -> tuple[str, frozenset[str]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("cohort must be a JSON object")
+    family = payload.get("family")
+    case_ids = payload.get("case_ids")
+    if not isinstance(family, str) or not family.strip():
+        raise ValueError("cohort family must be a non-blank string")
+    if (
+        not isinstance(case_ids, list)
+        or not case_ids
+        or not all(isinstance(case_id, str) and case_id for case_id in case_ids)
+    ):
+        raise ValueError("cohort case_ids must be a non-empty string list")
+    if len(set(case_ids)) != len(case_ids):
+        raise ValueError("cohort case_ids must be unique")
+    return family, frozenset(case_ids)
+
+
 def load_treatment(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -108,12 +127,21 @@ def main() -> int:
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--treatment", type=Path, required=True)
-    parser.add_argument("--family", required=True)
-    parser.add_argument("--case-id", action="append", required=True)
+    parser.add_argument("--cohort", type=Path)
+    parser.add_argument("--family")
+    parser.add_argument("--case-id", action="append")
     args = parser.parse_args()
 
     treatment = load_treatment(args.treatment)
-    case_ids = frozenset(args.case_id)
+    if args.cohort is not None:
+        if args.family is not None or args.case_id:
+            parser.error("--cohort cannot be combined with --family/--case-id")
+        family, case_ids = load_cohort(args.cohort)
+    else:
+        if args.family is None or not args.case_id:
+            parser.error("provide --cohort or both --family and --case-id")
+        family = args.family
+        case_ids = frozenset(args.case_id)
     common = RedockingHarnessConfig(
         benchmark="posebusters-canary",
         expected_case_count=len(case_ids),
@@ -146,11 +174,11 @@ def main() -> int:
     outcomes = paired_outcomes(
         _cases(baseline_path),
         _cases(treatment_path),
-        family=args.family,
+        family=family,
     )
     summary = promotion_summary(outcomes)
     payload = {
-        "family": args.family,
+        "family": family,
         "case_ids": sorted(case_ids),
         "baseline_config": serializable_config(common),
         "treatment": treatment,
