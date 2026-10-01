@@ -16,9 +16,16 @@ from benchmarks.interaction_summary import aggregate_family_rows, render_interac
 from benchmarks.reliability import reliability_cohorts
 
 
-def _load_cases(path: Path) -> list[dict[str, Any]]:
+def _load_payload(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    rows = payload.get("cases") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return payload
+
+
+def _load_cases(path: Path) -> list[dict[str, Any]]:
+    payload = _load_payload(path)
+    rows = payload.get("cases")
     if not isinstance(rows, list):
         raise ValueError(f"{path} must contain a cases list")
     if not all(isinstance(row, dict) for row in rows):
@@ -85,6 +92,32 @@ def aggregate(
     )
     return engine_rows, evaluated_rows, summary
 
+
+
+def aggregate_pose_evidence(
+    evaluated_paths: Iterable[Path],
+    *,
+    expected_case_ids: set[str],
+) -> dict[str, list[dict[str, object]]]:
+    merged: dict[str, list[dict[str, object]]] = {}
+    for path in sorted(evaluated_paths):
+        payload = _load_payload(path)
+        evidence = payload.get("pose_evidence", {})
+        if not isinstance(evidence, dict):
+            raise ValueError(f"{path} pose_evidence must be an object")
+        for case_id, poses in evidence.items():
+            if case_id not in expected_case_ids:
+                raise ValueError(f"unexpected pose_evidence case_id: {case_id}")
+            if case_id in merged:
+                raise ValueError(f"duplicate pose_evidence case_id: {case_id}")
+            if not isinstance(poses, list) or not all(
+                isinstance(pose, dict) for pose in poses
+            ):
+                raise ValueError(
+                    f"{path} pose_evidence[{case_id!r}] must be a list of objects"
+                )
+            merged[case_id] = poses
+    return dict(sorted(merged.items()))
 
 
 def aggregate_interactions(
@@ -168,15 +201,28 @@ def main() -> int:
         benchmark=benchmark,
         expected_cases=expected_cases,
     )
+    expected_case_ids = {str(row["case_id"]) for row in engine_rows}
+    pose_evidence = aggregate_pose_evidence(
+        evaluated_paths,
+        expected_case_ids=expected_case_ids,
+    )
 
     interaction_rows, interaction_summary = aggregate_interactions(
         interaction_paths=interaction_paths,
-        expected_case_ids={str(row["case_id"]) for row in engine_rows},
+        expected_case_ids=expected_case_ids,
     )
 
     args.output_root.mkdir(parents=True, exist_ok=True)
     _write_cases(args.output_root / "engine_cases.json", engine_rows)
-    _write_cases(args.output_root / "evaluated_cases.json", evaluated_rows)
+    (args.output_root / "evaluated_cases.json").write_text(
+        json.dumps(
+            {"cases": evaluated_rows, "pose_evidence": pose_evidence},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     _write_cases(args.output_root / "interaction_cases.json", interaction_rows)
     write_summary(args.output_root / "summary.json", summary)
     (args.output_root / "reliability.json").write_text(
