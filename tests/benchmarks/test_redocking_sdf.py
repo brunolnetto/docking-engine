@@ -29,7 +29,7 @@ def test_explicit_hydrogen_ligand_is_complete_sdf_record(monkeypatch, tmp_path):
         def MolToMolBlock(molecule):
             return "molblock"
 
-    monkeypatch.setattr(redocking, "Chem", ChemStub)
+    monkeypatch.setattr(redocking, "_rdkit_chem", lambda: ChemStub)
 
     content = redocking.ligand_content_with_explicit_hydrogens(ligand)
 
