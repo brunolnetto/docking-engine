@@ -52,19 +52,20 @@ def stage_summary(
         interactions[c].get("completed") is True for c in ids
     )
 
-    def metric(count: int) -> dict[str, object]:
+    def metric(count: int, denominator: int = total) -> dict[str, object]:
         return {
             "cases": count,
-            "rate": count / total if total else None,
+            "denominator": denominator,
+            "rate": count / denominator if denominator else None,
         }
 
     return {
         "total_cases": total,
         "engine_execution": metric(engine_ok),
         "rmsd_evaluable": metric(rmsd_ok),
-        "top1_rmsd_le_2a": metric(top1_ok),
+        "top1_rmsd_le_2a": metric(top1_ok, rmsd_ok),
         "pb_evaluable": metric(pb_evaluable),
-        "pb_valid": metric(pb_valid),
+        "pb_valid": metric(pb_valid, pb_evaluable),
         "interaction_evaluable": metric(interaction_ok),
     }
 
@@ -90,9 +91,12 @@ def render_markdown(summary: dict[str, object]) -> str:
     for key, label in labels:
         value = summary[key]
         count = int(value["cases"])
+        denominator = int(value.get("denominator", total))
         rate = value["rate"]
         rendered_rate = "n/a" if rate is None else f"{float(rate) * 100:.1f}%"
-        lines.append(f"| {label} | {count}/{total} | {rendered_rate} |")
+        lines.append(
+            f"| {label} | {count}/{denominator} | {rendered_rate} |"
+        )
     lines.extend(
         [
             "",
@@ -123,7 +127,11 @@ def main() -> int:
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    args.output_report.write_text(render_markdown(summary) + "\n", encoding="utf-8")
+    args.output_report.parent.mkdir(parents=True, exist_ok=True)
+    args.output_report.write_text(
+        render_markdown(summary) + "\n",
+        encoding="utf-8",
+    )
     return 0
 
 
