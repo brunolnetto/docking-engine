@@ -5,6 +5,7 @@ import pytest
 from benchmarks.posebusters.run_preparation_canary import (
     load_treatment,
     paired_outcomes,
+    serializable_config,
 )
 from benchmarks.redocking import RedockingHarnessConfig, receptor_preparation_parameters
 
@@ -56,3 +57,26 @@ def test_execution_only_outcomes_cannot_be_promoted_without_scientific_labels():
     )
     assert outcomes[0].baseline_rmsd is None
     assert outcomes[1].baseline_pb_valid is None
+
+
+def test_treatment_loader_rejects_wrong_boolean_type(tmp_path):
+    path = tmp_path / "treatment.json"
+    path.write_text(
+        json.dumps({"receptor_delete_bad_res": "false"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="field types are invalid"):
+        load_treatment(path)
+
+
+def test_serializable_config_converts_case_id_frozenset():
+    config = RedockingHarnessConfig(
+        benchmark="x",
+        expected_case_count=2,
+        run_prefix="x",
+        worker_id="x",
+        allowed_case_ids=frozenset({"b", "a"}),
+    )
+    payload = serializable_config(config)
+    assert payload["allowed_case_ids"] == ["a", "b"]
+    json.dumps(payload)
