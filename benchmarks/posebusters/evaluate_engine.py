@@ -15,6 +15,7 @@ from benchmarks.common import (  # noqa: E402
     summarize,
     write_summary,
 )
+from benchmarks.ranking_signals import vina_pose_scores  # noqa: E402
 
 
 def _column_name(value: object) -> str:
@@ -69,7 +70,52 @@ def _physical_validity(binary_row) -> bool:
     return all(_physical_checks(binary_row).values())
 
 
-def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseResult:
+def evaluate_pose_evidence(
+    row: dict[str, object],
+    *,
+    pose_rmsds: list[float | None],
+    pose_validity: list[bool | None],
+) -> list[dict[str, object]]:
+    predicted_pdbqt = row.get("predicted_pdbqt")
+    if predicted_pdbqt is None:
+        raise RuntimeError("engine case is missing predicted_pdbqt")
+    signals = vina_pose_scores(Path(str(predicted_pdbqt)).read_bytes())
+    if len(signals) != len(pose_rmsds):
+        raise RuntimeError(
+            "Vina and PoseBusters disagree on pose count: "
+            f"{len(signals)} != {len(pose_rmsds)}"
+        )
+    if len(pose_validity) != len(pose_rmsds):
+        raise RuntimeError(
+            "PoseBusters validity and RMSD disagree on pose count: "
+            f"{len(pose_validity)} != {len(pose_rmsds)}"
+        )
+
+    evidence: list[dict[str, object]] = []
+    for expected_rank, (signal, rmsd, valid) in enumerate(
+        zip(signals, pose_rmsds, pose_validity, strict=True),
+        start=1,
+    ):
+        if signal["rank"] != expected_rank:
+            raise RuntimeError(
+                "Vina signal rank is not contiguous: "
+                f"expected {expected_rank}, got {signal['rank']}"
+            )
+        item = dict(signal)
+        item["reference_rmsd_angstrom"] = rmsd
+        item["reference_success_le_2a"] = (
+            bool(rmsd <= 2.0) if rmsd is not None else None
+        )
+        item["pb_valid"] = valid
+        evidence.append(item)
+    return evidence
+
+
+def evaluate_completed_case(
+    row: dict[str, object],
+    *,
+    top_n: int = 9,
+) -> tuple[CaseResult, list[dict[str, object]]]:
     try:
         from posebusters import PoseBusters
     except ImportError as exc:
@@ -128,7 +174,7 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
                 raise
             pose_validity.append(None)
 
-    return CaseResult(
+    result = CaseResult(
         case_id=str(row["case_id"]),
         completed=True,
         rmsd_angstrom=pose_rmsds[0],
@@ -143,6 +189,12 @@ def evaluate_completed_case(row: dict[str, object], *, top_n: int = 9) -> CaseRe
         pose_evaluation_limit=top_n,
         pb_checks=top1_checks,
     )
+    evidence = evaluate_pose_evidence(
+        row,
+        pose_rmsds=pose_rmsds,
+        pose_validity=pose_validity,
+    )
+    return result, evidence
 
 
 def main() -> int:
@@ -164,6 +216,7 @@ def main() -> int:
     )
     engine_rate = engine_completed / engine_total if engine_total else None
     results = []
+    pose_evidence: dict[str, list[dict[str, object]]] = {}
     for row in payload["cases"]:
         if not row.get("completed"):
             results.append(
@@ -183,7 +236,9 @@ def main() -> int:
             )
             continue
         try:
-            results.append(evaluate_completed_case(row, top_n=args.top_n))
+            result, evidence = evaluate_completed_case(row, top_n=args.top_n)
+            results.append(result)
+            pose_evidence[str(row["case_id"])] = evidence
         except Exception as exc:
             results.append(
                 CaseResult(
@@ -198,7 +253,10 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(
-            {"cases": [result.__dict__ for result in results]},
+            {
+                "cases": [result.__dict__ for result in results],
+                "pose_evidence": pose_evidence,
+            },
             indent=2,
             sort_keys=True,
         )

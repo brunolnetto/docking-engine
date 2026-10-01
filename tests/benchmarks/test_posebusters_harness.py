@@ -10,6 +10,7 @@ from benchmarks.posebusters.evaluate_engine import (
     _boolean_value,
     _find_rmsd_numeric,
     _physical_checks,
+    evaluate_pose_evidence,
     _physical_validity,
 )
 
@@ -275,3 +276,37 @@ def test_summary_counts_posebusters_failures_by_check():
         "bond_lengths": 2,
         "sanitization": 1,
     }
+
+
+def test_pose_evidence_aligns_vina_rank_with_reference_labels(tmp_path):
+    pdbqt = tmp_path / "predicted.pdbqt"
+    pdbqt.write_bytes(
+        b"MODEL 1\nREMARK VINA RESULT: -8.2 0.000 0.000\nENDMDL\n"
+        b"MODEL 2\nREMARK VINA RESULT: -7.9 1.100 2.200\nENDMDL\n"
+    )
+    evidence = evaluate_pose_evidence(
+        {"predicted_pdbqt": str(pdbqt)},
+        pose_rmsds=[4.0, 1.5],
+        pose_validity=[True, False],
+    )
+
+    assert [row["rank"] for row in evidence] == [1, 2]
+    assert [row["vina_affinity_kcal_mol"] for row in evidence] == [-8.2, -7.9]
+    assert [row["reference_rmsd_angstrom"] for row in evidence] == [4.0, 1.5]
+    assert [row["reference_success_le_2a"] for row in evidence] == [False, True]
+    assert [row["pb_valid"] for row in evidence] == [True, False]
+
+
+def test_pose_evidence_rejects_vina_posebusters_count_mismatch(tmp_path):
+    pdbqt = tmp_path / "predicted.pdbqt"
+    pdbqt.write_bytes(
+        b"MODEL 1\nREMARK VINA RESULT: -8.2 0.000 0.000\nENDMDL\n"
+        b"MODEL 2\nREMARK VINA RESULT: -7.9 1.100 2.200\nENDMDL\n"
+    )
+
+    with pytest.raises(RuntimeError, match="disagree on pose count"):
+        evaluate_pose_evidence(
+            {"predicted_pdbqt": str(pdbqt)},
+            pose_rmsds=[4.0],
+            pose_validity=[True],
+        )
