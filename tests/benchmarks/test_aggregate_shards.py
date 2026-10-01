@@ -7,7 +7,11 @@ import sys
 
 import pytest
 
-from benchmarks.aggregate_shards import (\n    aggregate,\n    aggregate_interactions,\n    aggregate_pose_evidence,\n)
+from benchmarks.aggregate_shards import (
+    aggregate,
+    aggregate_interactions,
+    aggregate_pose_evidence,
+)
 
 
 def _write(path, rows):
