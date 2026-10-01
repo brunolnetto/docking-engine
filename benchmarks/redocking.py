@@ -353,6 +353,12 @@ def run_dataset(
                     "failure_stage": exc.stage,
                     "error": str(exc),
                     "runtime_seconds": time.monotonic() - case_started,
+                    "preparation_evidence": [
+                        decision.as_dict()
+                        for decision in preparation_decisions(
+                            case.receptor.read_bytes()
+                        )
+                    ],
                 }
             )
         except Exception as exc:
