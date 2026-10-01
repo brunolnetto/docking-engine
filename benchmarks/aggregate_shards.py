@@ -102,9 +102,24 @@ def aggregate_pose_evidence(
     merged: dict[str, list[dict[str, object]]] = {}
     for path in sorted(evaluated_paths):
         payload = _load_payload(path)
-        evidence = payload.get("pose_evidence", {})
+        rows = payload.get("cases")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise ValueError(f"{path} must contain a cases list of objects")
+        completed_ids = {
+            str(row["case_id"])
+            for row in rows
+            if row.get("completed") is True
+        }
+        evidence = payload.get("pose_evidence")
         if not isinstance(evidence, dict):
             raise ValueError(f"{path} pose_evidence must be an object")
+        evidence_ids = set(evidence)
+        if evidence_ids != completed_ids:
+            raise ValueError(
+                f"{path} pose_evidence/completed case sets differ: "
+                f"missing={sorted(completed_ids - evidence_ids)}, "
+                f"unexpected={sorted(evidence_ids - completed_ids)}"
+            )
         for case_id, poses in evidence.items():
             if case_id not in expected_case_ids:
                 raise ValueError(f"unexpected pose_evidence case_id: {case_id}")
