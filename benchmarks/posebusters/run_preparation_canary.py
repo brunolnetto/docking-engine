@@ -126,6 +126,7 @@ def main() -> int:
         "treatment_config": asdict(treated),
         "outcomes": [asdict(row) for row in outcomes],
         "summary": summary,
+        "scientific_evaluation_required": True,
     }
     args.output_root.mkdir(parents=True, exist_ok=True)
     (args.output_root / "canary_summary.json").write_text(
