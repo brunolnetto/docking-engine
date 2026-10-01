@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from benchmarks.posebusters.evaluate_engine import evaluate_completed_case
 from benchmarks.posebusters.preparation_canary import CanaryOutcome, promotion_summary
 from benchmarks.redocking import RedockingHarnessConfig, run_dataset
 
@@ -51,6 +52,49 @@ def load_treatment(path: Path) -> dict[str, Any]:
             + ", ".join(f"{key}={value!r}" for key, value in sorted(invalid.items()))
         )
     return payload
+
+
+def evaluate_rows(
+    rows: list[dict[str, object]],
+    *,
+    evaluator=evaluate_completed_case,
+) -> list[dict[str, object]]:
+    evaluated: list[dict[str, object]] = []
+    for row in rows:
+        merged = dict(row)
+        if row.get("completed") is not True:
+            merged["scientific_evaluation_completed"] = False
+            merged["scientific_evaluation_error"] = None
+            merged["rmsd_angstrom"] = None
+            merged["pb_valid"] = None
+            evaluated.append(merged)
+            continue
+        try:
+            result, pose_evidence = evaluator(row)
+        except Exception as exc:
+            merged["scientific_evaluation_completed"] = False
+            merged["scientific_evaluation_error"] = f"{type(exc).__name__}: {exc}"
+            merged["rmsd_angstrom"] = None
+            merged["pb_valid"] = None
+            evaluated.append(merged)
+            continue
+        merged["scientific_evaluation_completed"] = True
+        merged["scientific_evaluation_error"] = None
+        merged["rmsd_angstrom"] = result.rmsd_angstrom
+        merged["pb_valid"] = result.pb_valid
+        merged["pose_rmsd_angstroms"] = list(result.pose_rmsd_angstroms or ())
+        merged["pose_pb_valid"] = list(result.pose_pb_valid or ())
+        merged["pose_evidence"] = pose_evidence
+        evaluated.append(merged)
+    return evaluated
+
+
+def write_evaluated_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"cases": rows}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def paired_outcomes(
@@ -143,9 +187,14 @@ def main() -> int:
         config=treated,
     )
 
+    baseline_rows = evaluate_rows(_cases(baseline_path))
+    treatment_rows = evaluate_rows(_cases(treatment_path))
+    write_evaluated_rows(baseline_root / "evaluated_cases.json", baseline_rows)
+    write_evaluated_rows(treatment_root / "evaluated_cases.json", treatment_rows)
+
     outcomes = paired_outcomes(
-        _cases(baseline_path),
-        _cases(treatment_path),
+        baseline_rows,
+        treatment_rows,
         family=args.family,
     )
     summary = promotion_summary(outcomes)
@@ -157,7 +206,7 @@ def main() -> int:
         "treatment_config": serializable_config(treated),
         "outcomes": [asdict(row) for row in outcomes],
         "summary": summary,
-        "scientific_evaluation_required": True,
+        "scientific_evaluation_required": False,
     }
     args.output_root.mkdir(parents=True, exist_ok=True)
     (args.output_root / "canary_summary.json").write_text(
