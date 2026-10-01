@@ -208,6 +208,22 @@ def make_spec(
     )
 
 
+def case_preparation_evidence(case: BenchmarkCase) -> dict[str, object]:
+    try:
+        decisions = preparation_decisions(case.receptor.read_bytes())
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "decisions": [],
+        }
+    return {
+        "available": True,
+        "error": None,
+        "decisions": [decision.as_dict() for decision in decisions],
+    }
+
+
 def run_case(
     case: BenchmarkCase,
     output_root: Path,
@@ -231,11 +247,8 @@ def run_case(
         data_path=data,
     )
     runs = DuckLakeRunManifestRepository(catalog_path=catalog, data_path=data)
-    preparation_evidence = [
-        decision.as_dict()
-        for decision in preparation_decisions(case.receptor.read_bytes())
-    ]
     try:
+        preparation_evidence = case_preparation_evidence(case)
         try:
             spec = make_spec(case, config)
         except Exception as exc:
@@ -361,12 +374,7 @@ def run_dataset(
                     "failure_stage": exc.stage,
                     "error": str(exc),
                     "runtime_seconds": time.monotonic() - case_started,
-                    "preparation_evidence": [
-                        decision.as_dict()
-                        for decision in preparation_decisions(
-                            case.receptor.read_bytes()
-                        )
-                    ],
+                    "preparation_evidence": case_preparation_evidence(case),
                 }
             )
         except Exception as exc:
@@ -377,6 +385,7 @@ def run_dataset(
                     "failure_stage": "engine",
                     "error": f"{type(exc).__name__}: {exc}",
                     "runtime_seconds": time.monotonic() - case_started,
+                    "preparation_evidence": case_preparation_evidence(case),
                 }
             )
 
