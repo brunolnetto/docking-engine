@@ -27,7 +27,7 @@ dev = [
     "reportlab>=4.2,<5",
 ]
 ducklake = [
-    "duckdb>=1.5.5,<1.6",
+    "duckdb>=2,<2.1",
     "pytz>=2024.1",
 ]
 meeko = [
