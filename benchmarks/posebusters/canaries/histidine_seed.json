@@ -1,0 +1,8 @@
+{
+  "family": "histidine_ambiguity",
+  "scope": "seed",
+  "case_ids": [
+    "6YSP_PAL"
+  ],
+  "rationale": "Known histidine protonation ambiguity case; treatment must use residue-specific template assignment."
+}

@@ -80,3 +80,24 @@ def test_serializable_config_converts_case_id_frozenset():
     payload = serializable_config(config)
     assert payload["allowed_case_ids"] == ["a", "b"]
     json.dumps(payload)
+
+
+def test_load_cohort_reads_family_and_unique_cases(tmp_path):
+    path = tmp_path / "cohort.json"
+    path.write_text(
+        json.dumps({"family": "HEM", "case_ids": ["a", "b"]}),
+        encoding="utf-8",
+    )
+    family, case_ids = load_cohort(path)
+    assert family == "HEM"
+    assert case_ids == frozenset({"a", "b"})
+
+
+def test_load_cohort_rejects_duplicate_cases(tmp_path):
+    path = tmp_path / "cohort.json"
+    path.write_text(
+        json.dumps({"family": "HEM", "case_ids": ["a", "a"]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="must be unique"):
+        load_cohort(path)

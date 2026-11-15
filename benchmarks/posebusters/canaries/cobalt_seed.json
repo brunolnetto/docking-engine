@@ -1,0 +1,9 @@
+{
+  "family": "CO",
+  "scope": "seed",
+  "case_ids": [
+    "6XM9_V55",
+    "6ZPB_3D1"
+  ],
+  "rationale": "Baseline cases associated with CO residue evidence. Chemical identity must be verified from atom/element evidence before treating as cobalt."
+}

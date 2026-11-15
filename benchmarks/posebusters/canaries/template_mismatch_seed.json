@@ -1,0 +1,15 @@
+{
+  "family": "template_mismatch",
+  "scope": "seed",
+  "case_ids": [
+    "7JHQ_VAJ",
+    "7JXX_VP7",
+    "7KB1_WBJ",
+    "7L00_XCJ",
+    "7L03_F9F",
+    "7L7C_XQ1",
+    "7MFP_Z7P",
+    "7QE4_NGA"
+  ],
+  "rationale": "Representative explicit residue-template mismatch failures."
+}

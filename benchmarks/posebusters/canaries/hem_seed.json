@@ -1,0 +1,15 @@
+{
+  "family": "HEM",
+  "scope": "seed",
+  "case_ids": [
+    "7CL8_TES",
+    "7JY3_VUD",
+    "7KQU_YOF",
+    "7N6F_0I1",
+    "7RKW_5TV",
+    "7TS6_KMI",
+    "7TSF_H4B",
+    "7V43_C4O"
+  ],
+  "rationale": "Representative baseline preparation failures associated with HEM evidence. Seed cohort only; not exhaustive."
+}
